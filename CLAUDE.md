@@ -27,6 +27,9 @@ async def check():
         print('resources:', n)
 asyncio.run(check())
 "
+
+# Direct DB inspection
+sqlite3 movie_search.db "SELECT DISTINCT category FROM resources;"
 ```
 
 ### Frontend (Next.js 16 + React 19 + Tailwind 4)
@@ -43,59 +46,83 @@ bash start.sh     # nohup, logs to /tmp/movie-search-*.log
 bash stop.sh
 ```
 
+## Critical: Category Values
+
+**The DB stores Chinese category values** ("电影", "电视剧", "动漫", "综艺"), not English.
+
+- URL params and spider `ResourceItem.category` use English ("movie", "tv", "anime", "variety")
+- `CATEGORY_MAP` in `api/search.py` translates URL params → DB values at query time
+- `_CAT_NORM` in `spiders/scheduler.py` translates spider output → DB values at write time
+- `batch-import` in `api/admin.py` also applies normalization before writing
+- `CATEGORY_LABELS` and `CATEGORY_COLORS` in `frontend/src/lib/utils.ts` carry **both** English and Chinese keys so they work regardless of source
+
+Any new code querying or writing `Resource.category` must respect this. Adding a new path that stores English values will silently break search filters and category badges.
+
 ## Architecture
 
 ### Data flow
-User search → Next.js (SSR/client) → `GET /api/search?q=...` → FastAPI → SQLite → returns `ResourceCard[]`
-Detail page → `GET /api/resource/{id}` → increments `view_count`, returns full `ResourceDetail` with links
+```
+User search → Next.js → GET /api/search?q=&category=anime&sort=rating → FastAPI
+  → CATEGORY_MAP translates "anime"→"动漫" → SQLite query → ResourceCard[]
+Detail page → GET /api/resource/{id} → increments view_count, returns ResourceDetail with links
+```
 
 ### Backend structure
 
 **`models.py`** — five SQLAlchemy models:
-- `Resource` — the canonical record (title, year, category, poster_url, rating, synopsis, tmdb_id, etc.)
-- `ResourceLink` — download links per resource (url, link_type: `pan_quark/pan_baidu/pan_aliyun/magnet/direct`, password, quality, is_valid)
-- `Source` — a data source record with `spider_class` name + `config` JSON; scheduler runs all active sources
-- `SpiderLog` — per-run log (status: running/success/failed, new_resources count)
-- `SearchLog` — hot-search counter (upsert on every search hit)
+- `Resource` — canonical record (title, year, category, poster_url, rating, synopsis, tmdb_id, etc.)
+- `ResourceLink` — download links (url, link_type, password, quality, is_valid). `is_valid=False` hides a link from the detail page without deleting it.
+- `Source` — data source config with `spider_class` name + `config` JSON
+- `SpiderLog` — per-run log (status: running/success/failed)
+- `SearchLog` — hot-search counter, upserted on every non-empty search hit
 
-**`api/`** — three routers:
-- `search.py` (`/api`) — public: search, resource detail, hot, stats, hot-searches, related
-- `admin.py` (`/api/admin`) — protected by `X-Admin-Token: admin123` header; sources CRUD, batch-import, bangumi-enrich, resource+link management
-- `tmdb.py` (`/api/tmdb`) — TMDb proxy (requires `TMDB_API_KEY` in `.env`)
+**`api/search.py`** — public router (`/api`):
+- `GET /search` — supports `q`, `category` (English), `year`, `genre` (ilike substring), `sort` (popular/rating/newest/latest), `page`
+- `GET /stats` — 60s in-memory cache (`_stats_cache` module global); safe for single-worker uvicorn only
+- `_ORDER_MAP` — module-level dict mapping sort param → SQLAlchemy `order_by()` columns
+
+**`api/admin.py`** — protected by `X-Admin-Token` header (default `admin123`):
+- Batch import: dedup by title + year using `scalars().first()` (not `scalar_one_or_none()`, which raises on multiple matches)
+- Delete resource: explicitly deletes `ResourceLink` rows first, then `Resource` (cascade not reliable via async execute)
+- `invalidate_link` sets `is_valid=False`; `update_link` (PATCH) does NOT touch `is_valid`
 
 **Spider system (`spiders/`)**:
-- `base.py` — `BaseSpider` (abstract) + `ResourceItem` (standard output format)
-- `SPIDER_REGISTRY` in `__init__.py` — maps `spider_class` string → class; add new spiders here
-- `scheduler.py` — `run_spider(source_id)` instantiates the registered class, calls `crawl(page)`, upserts results; dedup by title+year or tmdb_id
-- `sources/bangumi.py` — **not** in SPIDER_REGISTRY; called directly via `POST /api/admin/bangumi-enrich`; enriches 动漫 resources with poster/rating/synopsis from bgm.tv (free, no key)
+- `SPIDER_REGISTRY` in `__init__.py` — maps `spider_class` string → class; register new spiders here
+- `scheduler.py` — `run_spider(source_id)` upserts results; dedup by title+year then by tmdb_id; always normalizes category via `_CAT_NORM`
+- `sources/bangumi.py` — NOT in SPIDER_REGISTRY; called via `POST /api/admin/bangumi-enrich`; queries `Resource.category == "动漫"` (Chinese)
 
-**DB init**: `init_db()` calls `Base.metadata.create_all` on startup — no migration framework, schema changes are additive only.
+**DB**: `init_db()` runs `create_all` + `CREATE INDEX IF NOT EXISTS` on startup. Schema changes are additive only — no migration framework.
 
-**Config** (`config.py`): reads from `.env`. Key vars: `TMDB_API_KEY`, `ADMIN_PASSWORD` (default `admin123`), `SPIDER_INTERVAL_HOURS` (default 6).
+**Config** (`config.py`): `.env` file. Key vars: `TMDB_API_KEY`, `ADMIN_PASSWORD`, `CORS_ORIGINS` (comma-separated), `SPIDER_INTERVAL_HOURS`.
 
 ### Frontend structure
 
-**Pages** (App Router, all under `src/app/`):
-- `/` (`page.tsx` → `HomeContent.tsx`) — hero search + hot resources grid
-- `/search` (`page.tsx` → `SearchContent.tsx`) — filtered search results with category tabs
-- `/detail/[id]` (`page.tsx` → `DetailContent.tsx`) — resource detail + download links
-- `/admin` (`page.tsx`) — single-file admin panel (no separate components)
+**Pages** (App Router, `src/app/`):
+- `/` → `HomeContent.tsx` — hero search + category cards + hot resources grid
+- `/search` → `SearchContent.tsx` — search results with category/year/sort filters; `page.tsx` adds `generateMetadata`
+- `/detail/[id]` → `DetailContent.tsx` — resource detail + grouped download links + related; `page.tsx` adds `generateMetadata` via SSR fetch
+- `/admin` — single-file admin panel, no sub-components
 
-Next.js 16 requires `params` to be unwrapped with `use()`: `const { id } = use(params)` — not destructured directly.
+Next.js 16: `params` must be unwrapped with `use(params)` in server components, not destructured directly.
 
-**`src/lib/api.ts`** — all fetch calls; `API_BASE` from `NEXT_PUBLIC_API_URL` env var (default `http://localhost:8000`). Uses `{ next: { revalidate: 60 } }` for ISR caching.
+**`src/lib/api.ts`** — all fetch calls. `API_BASE` from `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`). `searchResources()` accepts `sort` and `genre` params.
 
-**CSS**: dark theme via CSS custom properties (`--bg-primary`, `--bg-card`, `--accent: #e50914`). Tailwind 4 (imported as `@import "tailwindcss"`). Inline styles are used alongside Tailwind throughout — this is intentional for card/panel backgrounds.
+**`src/lib/utils.ts`** — shared constants: `CATEGORY_LABELS` (both English + Chinese keys), `LINK_TYPE_LABELS`, `QUALITY_COLORS`.
+
+**CSS**: dark theme via CSS custom properties (`--bg-primary`, `--bg-card`, `--accent: #e50914`). Tailwind 4 (`@import "tailwindcss"`). Inline styles co-exist with Tailwind — intentional for card/panel backgrounds.
+
+### Key frontend patterns
+
+- **`useEffect` deps in search page**: depend only on `searchParams`, not on derived values (`q`, `category`, etc.) extracted from it — they change in the same render tick anyway and would cause redundant calls.
+- **Hover zoom on images**: requires `group` on the container div and `group-hover:scale-105` on the `<Image>`. The `resource-card` CSS class does not provide `group`.
+- **`CATEGORY_COLORS`** in `ResourceCard.tsx` uses Chinese keys to match DB values directly.
+- **Navbar `q` state**: synced via `useEffect([searchParams])` so it updates when navigating via hot-searches or footer links.
 
 ### Admin panel features
-- Bangumi metadata enrichment (poster/rating/synopsis from bgm.tv, free, no key needed)
-- Batch import via JSON (`POST /api/admin/batch-import`)
-- Resource list with per-resource link management (add/delete links, expandable rows)
+- Bangumi metadata enrichment (poster/rating/synopsis from bgm.tv, free, no key)
+- Batch import via JSON array (`POST /api/admin/batch-import`)
+- Resource list with per-resource link management (expandable rows, add/delete/invalidate links)
 - Data source CRUD + manual spider trigger
-- TMDb source creation helper
 
 ### Link types
-`pan_quark`, `pan_baidu`, `pan_aliyun`, `magnet`, `direct` — stored in `ResourceLink.link_type`. Baidu password stored separately in `ResourceLink.password` (stripped from URL).
-
-### Bangumi enrichment notes
-`spiders/sources/bangumi.py` `clean_title()` strips season/year/合集 suffixes before searching bgm.tv. It also extracts Japanese kana substrings first for JP titles. If a title mismatches, clear `poster_url/rating/synopsis` on that resource and re-enrich with `overwrite=False`, or fix directly via `PATCH /api/admin/links/{id}` / DB script.
+`pan_quark`, `pan_baidu`, `pan_aliyun`, `magnet`, `direct`, `page` — stored in `ResourceLink.link_type`. Baidu extraction code in `ResourceLink.password`. All link types show both a copy button and an open button (including `magnet:` URLs which the OS handles).
