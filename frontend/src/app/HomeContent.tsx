@@ -161,7 +161,7 @@ export default function HomeContent() {
 
           {/* 统计数字 */}
           {stats && (
-            <div className="flex items-center justify-center gap-10 mt-10">
+            <div className="flex items-center justify-center gap-4 sm:gap-10 mt-10">
               {[
                 { label: "影视资源", value: stats.total_resources.toLocaleString(), color: "#e50914" },
                 { label: "下载链接", value: stats.total_links.toLocaleString(), color: "#60a5fa" },
@@ -190,6 +190,8 @@ export default function HomeContent() {
                 ? "grid-cols-1 max-w-xs"
                 : activeCategories.length === 2
                 ? "grid-cols-2"
+                : activeCategories.length === 3
+                ? "grid-cols-2 sm:grid-cols-3"
                 : "grid-cols-2 sm:grid-cols-4"
             }`}
           >

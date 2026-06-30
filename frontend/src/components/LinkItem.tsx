@@ -23,8 +23,8 @@ export default function LinkItem({ link, index }: Props) {
     <div
       className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg"
       style={{
-        background: "rgba(255,255,255,0.04)",
-        border: "1px solid rgba(255,255,255,0.07)",
+        background: "var(--bg-card)",
+        border: "1px solid var(--border)",
       }}
     >
       {/* 序号 */}

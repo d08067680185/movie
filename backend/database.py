@@ -20,6 +20,16 @@ async def init_db():
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        for sql in [
+            "CREATE INDEX IF NOT EXISTS idx_rl_resource_id ON resource_links (resource_id)",
+            "CREATE INDEX IF NOT EXISTS idx_rl_source_id ON resource_links (source_id)",
+            "CREATE INDEX IF NOT EXISTS idx_rl_is_valid ON resource_links (is_valid)",
+            "CREATE INDEX IF NOT EXISTS idx_r_category_rating ON resources (category, rating DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_r_year ON resources (year DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_sl_count ON search_logs (count DESC)",
+        ]:
+            await conn.execute(text(sql))
+        # 统一历史分类值
         await conn.execute(text(
-            "CREATE INDEX IF NOT EXISTS idx_rl_resource_id ON resource_links (resource_id)"
+            "UPDATE resources SET category = '经典资源' WHERE category IN ('综艺', '资源')"
         ))

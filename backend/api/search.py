@@ -11,12 +11,7 @@ from schemas import SearchResult, ResourceCardOut, ResourceDetailOut, ResourceLi
 
 router = APIRouter(prefix="/api", tags=["search"])
 
-CATEGORY_MAP = {
-    "movie": "电影",
-    "tv": "电视剧",
-    "anime": "动漫",
-    "variety": "经典资源",
-}
+from config import CATEGORY_MAP
 
 _ORDER_MAP = {
     "popular": [Resource.view_count.desc(), Resource.rating.desc().nulls_last()],

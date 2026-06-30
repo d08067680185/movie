@@ -33,7 +33,7 @@ export default function ResourceCard({ resource }: Props) {
               src={resource.poster_url}
               alt={resource.title}
               fill
-              className="object-cover transition-transform duration-300 group-hover:scale-108"
+              className="object-cover transition-transform duration-300 group-hover:scale-[1.08]"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 200px"
               unoptimized
             />

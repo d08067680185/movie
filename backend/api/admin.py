@@ -7,7 +7,7 @@ from database import get_db
 from models import Source, SpiderLog, Resource, ResourceLink
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
-from config import settings
+from config import settings, CATEGORY_MAP as _CAT_NORM
 import asyncio
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -282,9 +282,9 @@ async def change_password(
             lines.append(f"ADMIN_PASSWORD={new_password}\n")
         with open(env_path, "w") as f:
             f.writelines(lines)
+        return {"message": "密码已修改，已持久化到 .env"}
     except Exception as e:
-        pass  # 写文件失败不影响内存已更新
-    return {"message": "密码已修改"}
+        return {"message": "密码已修改（本次重启有效）", "warning": f".env 写入失败，重启后将恢复旧密码：{e}"}
 
 
 @router.post("/batch-import", response_model=BatchImportResult)
@@ -322,8 +322,9 @@ async def batch_import(
                 res = existing
                 updated += 1
             else:
-                _CAT_NORM = {"movie": "电影", "tv": "电视剧", "anime": "动漫", "variety": "经典资源"}
                 cat = _CAT_NORM.get(item.category, item.category)
+                if item.category not in _CAT_NORM and item.category not in _CAT_NORM.values():
+                    errors.append(f"未知分类 '{item.category}'，已原样存入")
                 res = Resource(
                     title=item.title,
                     year=item.year,

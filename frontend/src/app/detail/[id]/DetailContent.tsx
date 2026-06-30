@@ -133,7 +133,7 @@ export default function DetailContent({ id }: Props) {
         </div>
 
         {/* 主信息区 */}
-        <div className="flex flex-col sm:flex-row gap-8 mb-10">
+        <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 mb-10">
           {/* 海报 */}
           <div
             className="w-48 aspect-[2/3] rounded-xl overflow-hidden shrink-0 mx-auto sm:mx-0"

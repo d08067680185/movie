@@ -13,6 +13,7 @@ export async function generateMetadata({
   try {
     const res = await fetch(`${API}/api/resource/${id}`, {
       next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return { title: "资源详情 - 影视搜索" };
     const data = await res.json();

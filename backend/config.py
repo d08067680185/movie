@@ -2,6 +2,14 @@ from pydantic_settings import BaseSettings
 from typing import Optional
 
 
+CATEGORY_MAP: dict[str, str] = {
+    "movie": "电影",
+    "tv": "电视剧",
+    "anime": "动漫",
+    "variety": "经典资源",
+}
+
+
 class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite+aiosqlite:///./movie_search.db"
     TMDB_API_KEY: Optional[str] = None

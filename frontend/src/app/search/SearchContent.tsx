@@ -302,7 +302,10 @@ export default function SearchContent() {
               <div className="mt-4 space-y-1 text-sm">
                 <p>试试：</p>
                 <div className="flex flex-wrap justify-center gap-2 mt-2">
-                  {[q.slice(0, 2), q.replace(/[^一-龥]/g, "").slice(0, 4)].filter((s) => s && s !== q).map((s) => (
+                  {[
+                    q.length > 2 ? q.slice(0, Math.ceil(q.length / 2)) : null,
+                    q.replace(/[^一-鿿]/g, "").slice(0, 4) || null,
+                  ].filter((s): s is string => !!s && s !== q && s.length >= 1).map((s) => (
                     <button
                       key={s}
                       onClick={() => {

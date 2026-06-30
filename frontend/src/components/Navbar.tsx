@@ -39,7 +39,10 @@ export default function Navbar() {
 
   function clearSearch() {
     setQ("");
-    router.push("/search");
+    const sp = new URLSearchParams(searchParams.toString());
+    sp.delete("q");
+    sp.delete("page");
+    router.push(`/search?${sp.toString()}`);
   }
 
   return (

@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image, Lock, FilePlus } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 function apiFetch(path: string, opts: RequestInit = {}, token: string) {
   return fetch(`${API}${path}`, {
@@ -313,7 +313,8 @@ export default function AdminPage() {
     const sp = new URLSearchParams({ new_password: pwForm.newPw });
     const resp = await apiFetch(`/api/admin/change-password?${sp}`, { method: "POST" }, token);
     if (resp.ok) {
-      setPwMsg("✓ 密码修改成功，请牢记新密码");
+      const d = await resp.json().catch(() => ({}));
+      setPwMsg(d.warning ? `⚠️ ${d.warning}` : `✓ ${d.message}`);
       setToken(pwForm.newPw);
       setPwForm({ newPw: "", confirmPw: "" });
     } else {
