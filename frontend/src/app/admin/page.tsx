@@ -198,6 +198,17 @@ export default function AdminPage() {
     loadResources();
   }
 
+  async function deleteResource(resourceId: number, title: string) {
+    if (!confirm(`确认删除「${title}」及其所有链接？此操作不可恢复。`)) return;
+    const resp = await apiFetch(`/api/admin/resources/${resourceId}`, { method: "DELETE" }, token);
+    if (resp.ok) {
+      setMsg(`已删除「${title}」`);
+      loadResources();
+    } else {
+      setMsg("删除失败");
+    }
+  }
+
   async function addLink(e: React.FormEvent) {
     e.preventDefault();
     if (!addLinkForm) return;
@@ -940,7 +951,12 @@ export default function AdminPage() {
                       <button onClick={e => { e.stopPropagation(); setAddLinkForm({ resource_id: res.id, url: "", link_type: "pan_quark", password: "" }); }}
                         className="px-2 py-1 rounded text-xs"
                         style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>
-                        + 添加链接
+                        + 链接
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); deleteResource(res.id, res.title); }}
+                        className="px-2 py-1 rounded text-xs"
+                        style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" }}>
+                        删除
                       </button>
                       <span className="text-xs" style={{ color: "#404050" }}>{expandedId === res.id ? "▲" : "▼"}</span>
                     </div>
