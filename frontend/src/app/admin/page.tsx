@@ -283,12 +283,28 @@ export default function AdminPage() {
     color: "#f0f0f5",
   };
 
+  // 后台始终使用暗色模式（覆盖用户的日间主题）
+  const darkTheme: React.CSSProperties = {
+    "--bg-primary": "#0d0d12",
+    "--bg-secondary": "#13131a",
+    "--bg-card": "#1a1a24",
+    "--bg-card-hover": "#22222f",
+    "--bg-input": "rgba(255,255,255,0.07)",
+    "--text-primary": "#f2f2f8",
+    "--text-secondary": "#9898b0",
+    "--text-muted": "#606070",
+    "--border": "rgba(255,255,255,0.1)",
+    "--border-input": "rgba(255,255,255,0.12)",
+    "--border-bright": "rgba(255,255,255,0.18)",
+    colorScheme: "dark",
+  } as React.CSSProperties;
+
   const statusColors: Record<string, string> = { success: "#4ade80", failed: "#f87171", running: "#fbbf24" };
 
   if (!authed) {
     return (
       <div
-        style={{ minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        style={{ ...darkTheme, minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}
       >
         <div
           style={{ width: 360, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 32 }}
@@ -321,7 +337,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
+    <div style={{ ...darkTheme, minHeight: "100vh", background: "var(--bg-primary)" }}>
       {/* 顶部栏 */}
       <div style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
