@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { Search, TrendingUp, Film, Star, Clock, X } from "lucide-react";
 import { getHotResources, getLatestResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
@@ -49,7 +49,11 @@ export default function HomeContent() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
-      <Navbar />
+      <Suspense fallback={
+        <div style={{ height: "56px", background: "var(--nav-bg)", borderBottom: "1px solid var(--border)" }} />
+      }>
+        <Navbar />
+      </Suspense>
       {/* Hero */}
       <div
         className="relative overflow-hidden"
