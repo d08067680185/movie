@@ -3,7 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image, Lock, FilePlus } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
 function apiFetch(path: string, opts: RequestInit = {}, token: string) {
   return fetch(`${API}${path}`, {
