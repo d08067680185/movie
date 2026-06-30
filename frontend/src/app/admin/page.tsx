@@ -318,7 +318,8 @@ export default function AdminPage() {
       setPwForm({ newPw: "", confirmPw: "" });
     } else {
       const d = await resp.json().catch(() => ({}));
-      setPwMsg(d.detail || "修改失败");
+      const msg = Array.isArray(d.detail) ? d.detail.map((e: {msg?: string}) => e.msg || "").join("; ") : (d.detail || "修改失败");
+      setPwMsg(msg);
     }
     setPwLoading(false);
   }
