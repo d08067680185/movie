@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
+from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
 from models import Source, SpiderLog, Resource, ResourceLink
@@ -105,24 +106,26 @@ async def list_resources(
     db: AsyncSession = Depends(get_db),
     _=Depends(verify_admin),
 ):
-    from sqlalchemy import func, or_
+    from sqlalchemy import func
     stmt = select(Resource)
     if q:
         stmt = stmt.where(Resource.title.contains(q))
     if category:
         stmt = stmt.where(Resource.category == category)
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar()
-    stmt = stmt.order_by(Resource.id.desc()).offset((page - 1) * page_size).limit(page_size)
+    stmt = (stmt.options(selectinload(Resource.links))
+                .order_by(Resource.id.desc())
+                .offset((page - 1) * page_size)
+                .limit(page_size))
     items = (await db.execute(stmt)).scalars().all()
     result = []
     for r in items:
-        links = (await db.execute(select(ResourceLink).where(ResourceLink.resource_id == r.id))).scalars().all()
         result.append({
             "id": r.id, "title": r.title, "year": r.year,
             "category": r.category, "poster_url": r.poster_url,
-            "rating": r.rating, "link_count": len(links),
+            "rating": r.rating, "link_count": len(r.links),
             "links": [{"id": l.id, "url": l.url, "link_type": l.link_type,
-                        "password": l.password, "quality": l.quality, "is_valid": l.is_valid} for l in links]
+                        "password": l.password, "quality": l.quality, "is_valid": l.is_valid} for l in r.links]
         })
     return {"total": total, "page": page, "page_size": page_size, "items": result}
 

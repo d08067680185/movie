@@ -87,12 +87,12 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
         Resource.year == item.year,
     )
     result = await db.execute(stmt)
-    resource = result.scalar_one_or_none()
+    resource = result.scalars().first()
 
     # TMDb 专属：按 tmdb_id 优先去重
     tmdb_id = getattr(item, "_tmdb_id", None)
     if tmdb_id and resource is None:
-        r2 = (await db.execute(select(Resource).where(Resource.tmdb_id == tmdb_id))).scalar_one_or_none()
+        r2 = (await db.execute(select(Resource).where(Resource.tmdb_id == tmdb_id))).scalars().first()
         if r2:
             resource = r2
 

@@ -222,8 +222,7 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     cat_stmt = select(Resource.category, func.count(Resource.id)).group_by(Resource.category)
     categories = {}
     for cat, cnt in (await db.execute(cat_stmt)).all():
-        label = CATEGORY_MAP.get(cat or "movie", cat or "电影")
-        categories[label] = cnt
+        categories[cat or "未分类"] = cnt
 
     result = StatsOut(
         total_resources=total_resources,
