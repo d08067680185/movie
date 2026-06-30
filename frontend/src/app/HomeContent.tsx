@@ -1,16 +1,16 @@
 "use client";
 import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Search, TrendingUp, Film, Star, Clock } from "lucide-react";
+import { Search, TrendingUp, Film, Star, Clock, X } from "lucide-react";
 import { getHotResources, getLatestResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
 
-const CATEGORY_META: { label: string; value: string; icon: string; color: string }[] = [
-  { label: "电影", value: "movie", icon: "🎬", color: "#3b82f6" },
-  { label: "电视剧", value: "tv", icon: "📺", color: "#a855f7" },
-  { label: "动漫", value: "anime", icon: "⛩️", color: "#ec4899" },
-  { label: "综艺", value: "variety", icon: "🎪", color: "#f97316" },
+const CATEGORY_META = [
+  { label: "电影", value: "movie", icon: "🎬", color: "#60a5fa", glow: "rgba(96,165,250,0.2)" },
+  { label: "电视剧", value: "tv", icon: "📺", color: "#a78bfa", glow: "rgba(167,139,250,0.2)" },
+  { label: "动漫", value: "anime", icon: "⛩️", color: "#f472b6", glow: "rgba(244,114,182,0.2)" },
+  { label: "综艺", value: "variety", icon: "🎪", color: "#fb923c", glow: "rgba(251,146,60,0.2)" },
 ];
 
 export default function HomeContent() {
@@ -39,41 +39,50 @@ export default function HomeContent() {
 
   function handleSearch(e: FormEvent) {
     e.preventDefault();
-    if (q.trim()) {
-      router.push(`/search?q=${encodeURIComponent(q.trim())}`);
-    }
+    if (q.trim()) router.push(`/search?q=${encodeURIComponent(q.trim())}`);
   }
 
-  // 只显示有内容的分类
   const activeCategories = CATEGORY_META.filter(
     (c) => stats && (stats.categories[c.label] ?? 0) > 0
   );
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
-      {/* Hero 区域 */}
+      {/* Hero */}
       <div
         className="relative overflow-hidden"
         style={{
-          background: "linear-gradient(180deg, #0a0a10 0%, #0f0f13 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
+          background: "linear-gradient(180deg, #08080e 0%, #0d0d12 100%)",
+          borderBottom: "1px solid rgba(255,255,255,0.07)",
         }}
       >
-        <div
-          className="absolute inset-0 opacity-20"
-          style={{
-            background: "radial-gradient(ellipse 80% 60% at 50% 0%, rgba(229,9,20,0.15) 0%, transparent 70%)",
-          }}
-        />
+        {/* 背景光晕 */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div style={{
+            position: "absolute", top: "-20%", left: "50%", transform: "translateX(-50%)",
+            width: "700px", height: "400px",
+            background: "radial-gradient(ellipse, rgba(229,9,20,0.12) 0%, transparent 70%)",
+          }} />
+          <div style={{
+            position: "absolute", bottom: "0", left: "15%",
+            width: "300px", height: "200px",
+            background: "radial-gradient(ellipse, rgba(96,165,250,0.06) 0%, transparent 70%)",
+          }} />
+          <div style={{
+            position: "absolute", bottom: "0", right: "15%",
+            width: "300px", height: "200px",
+            background: "radial-gradient(ellipse, rgba(244,114,182,0.06) 0%, transparent 70%)",
+          }} />
+        </div>
 
         <div className="relative max-w-4xl mx-auto px-4 py-20 text-center">
           <div className="flex items-center justify-center gap-3 mb-4">
             <Film size={32} style={{ color: "#e50914" }} />
-            <h1 className="text-4xl font-black" style={{ letterSpacing: "-1px" }}>
+            <h1 className="text-4xl font-black gradient-text" style={{ letterSpacing: "-1px" }}>
               影视资源搜索
             </h1>
           </div>
-          <p className="mb-10 text-lg" style={{ color: "#a0a0b0" }}>
+          <p className="mb-10 text-base" style={{ color: "#7878a0" }}>
             聚合多源影视资源，一键搜索电影、电视剧、动漫
           </p>
 
@@ -82,26 +91,38 @@ export default function HomeContent() {
             <div
               className="flex items-center gap-3 px-5 py-4 rounded-2xl search-glow"
               style={{
-                background: "rgba(255,255,255,0.06)",
-                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(255,255,255,0.07)",
+                border: "1px solid rgba(255,255,255,0.14)",
               }}
             >
-              <Search size={20} style={{ color: "#a0a0b0", flexShrink: 0 }} />
+              <Search size={20} style={{ color: "#7878a0", flexShrink: 0 }} />
               <input
                 type="text"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="输入电影、电视剧、动漫名称..."
                 className="flex-1 bg-transparent outline-none text-lg"
-                style={{ color: "#f0f0f5" }}
+                style={{ color: "#f2f2f8" }}
                 autoFocus
               />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setQ("")}
+                  className="shrink-0 rounded-full p-1 transition-all hover:bg-white/10"
+                  style={{ color: "#9898b0" }}
+                  aria-label="清除"
+                >
+                  <X size={16} />
+                </button>
+              )}
               <button
                 type="submit"
-                className="px-6 py-2 rounded-xl font-semibold text-white transition-all shrink-0"
+                className="px-6 py-2 rounded-xl font-semibold text-white transition-all shrink-0 hover:brightness-110 active:scale-95"
                 style={{
                   background: "linear-gradient(135deg, #e50914 0%, #c40812 100%)",
                   fontSize: "15px",
+                  boxShadow: "0 2px 12px rgba(229,9,20,0.4)",
                 }}
               >
                 搜索
@@ -112,7 +133,7 @@ export default function HomeContent() {
           {/* 热门搜索 */}
           {hotKeywords.length > 0 && (
             <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-              <span className="text-sm flex items-center gap-1" style={{ color: "#606070" }}>
+              <span className="text-sm flex items-center gap-1" style={{ color: "#555570" }}>
                 <TrendingUp size={14} /> 热搜:
               </span>
               {hotKeywords.slice(0, 8).map((kw) => (
@@ -122,8 +143,8 @@ export default function HomeContent() {
                   className="px-3 py-1 rounded-full text-sm transition-all hover:text-white"
                   style={{
                     background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(255,255,255,0.08)",
-                    color: "#a0a0b0",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    color: "#9898b0",
                   }}
                 >
                   {kw}
@@ -134,17 +155,17 @@ export default function HomeContent() {
 
           {/* 统计数字 */}
           {stats && (
-            <div className="flex items-center justify-center gap-8 mt-10">
+            <div className="flex items-center justify-center gap-10 mt-10">
               {[
-                { label: "影视资源", value: stats.total_resources.toLocaleString() },
-                { label: "下载链接", value: stats.total_links.toLocaleString() },
-                { label: "数据来源", value: stats.total_sources.toString() },
+                { label: "影视资源", value: stats.total_resources.toLocaleString(), color: "#e50914" },
+                { label: "下载链接", value: stats.total_links.toLocaleString(), color: "#60a5fa" },
+                { label: "数据来源", value: stats.total_sources.toString(), color: "#f472b6" },
               ].map((item) => (
                 <div key={item.label} className="text-center">
-                  <div className="text-2xl font-black" style={{ color: "#e50914" }}>
+                  <div className="text-2xl font-black" style={{ color: item.color }}>
                     {item.value}
                   </div>
-                  <div className="text-xs mt-1" style={{ color: "#606070" }}>
+                  <div className="text-xs mt-1" style={{ color: "#555570" }}>
                     {item.label}
                   </div>
                 </div>
@@ -155,23 +176,41 @@ export default function HomeContent() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* 分类导航（只显示有内容的分类） */}
+        {/* 分类导航 */}
         {activeCategories.length > 0 && (
-          <div className={`grid gap-4 mb-12 ${activeCategories.length === 1 ? "grid-cols-1 max-w-xs" : activeCategories.length === 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4"}`}>
+          <div
+            className={`grid gap-4 mb-12 ${
+              activeCategories.length === 1
+                ? "grid-cols-1 max-w-xs"
+                : activeCategories.length === 2
+                ? "grid-cols-2"
+                : "grid-cols-2 sm:grid-cols-4"
+            }`}
+          >
             {activeCategories.map((cat) => (
               <button
                 key={cat.value}
                 onClick={() => router.push(`/search?category=${cat.value}`)}
-                className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-105"
+                className="cat-card flex items-center gap-3 p-4 rounded-xl text-left"
                 style={{
                   background: "var(--bg-card)",
-                  border: "1px solid var(--border)",
+                  border: `1px solid rgba(255,255,255,0.1)`,
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = cat.color;
+                  (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${cat.glow}`;
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.1)";
+                  (e.currentTarget as HTMLElement).style.boxShadow = "";
                 }}
               >
                 <span className="text-2xl">{cat.icon}</span>
-                <div className="text-left">
-                  <div className="font-semibold">{cat.label}</div>
-                  <div className="text-xs" style={{ color: "#606070" }}>
+                <div>
+                  <div className="font-semibold" style={{ color: cat.color }}>
+                    {cat.label}
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: "#555570" }}>
                     {stats?.categories[cat.label]?.toLocaleString() ?? 0} 部
                   </div>
                 </div>
@@ -182,7 +221,7 @@ export default function HomeContent() {
 
         {/* 热门资源 */}
         <div className="flex items-center gap-2 mb-6">
-          <Star size={18} style={{ color: "#f5c518" }} fill="#f5c518" />
+          <Star size={18} fill="#fbbf24" style={{ color: "#fbbf24" }} />
           <h2 className="text-xl font-bold">热门资源</h2>
         </div>
 
@@ -197,7 +236,7 @@ export default function HomeContent() {
             ))}
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center py-16" style={{ color: "#606070" }}>
+          <div className="flex flex-col items-center py-16" style={{ color: "#555570" }}>
             <p>{error}</p>
             <button
               onClick={() => window.location.reload()}
@@ -217,7 +256,7 @@ export default function HomeContent() {
 
         {/* 最新入库 */}
         {!loading && !error && latestResources.length > 0 && (
-          <div className="mt-12">
+          <div className="mt-14">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Clock size={18} style={{ color: "#60a5fa" }} />
@@ -226,7 +265,7 @@ export default function HomeContent() {
               <button
                 onClick={() => router.push("/search?sort=latest")}
                 className="text-sm transition-colors hover:text-white"
-                style={{ color: "#606070" }}
+                style={{ color: "#555570" }}
               >
                 查看全部 →
               </button>

@@ -8,19 +8,23 @@ interface Props {
   resource: ResourceCardType;
 }
 
-const CATEGORY_COLORS: Record<string, string> = {
-  电影: "bg-blue-500/20 text-blue-400",
-  电视剧: "bg-purple-500/20 text-purple-400",
-  动漫: "bg-pink-500/20 text-pink-400",
-  综艺: "bg-orange-500/20 text-orange-400",
+const BADGE_CLASS: Record<string, string> = {
+  动漫: "badge-anime",
+  电影: "badge-movie",
+  电视剧: "badge-tv",
+  综艺: "badge-variety",
 };
 
 export default function ResourceCard({ resource }: Props) {
   return (
     <Link href={`/detail/${resource.id}`} className="block resource-card">
       <div
-        className="rounded-xl overflow-hidden"
-        style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+        className="card-inner rounded-xl overflow-hidden"
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--border)",
+          transition: "border-color 0.2s",
+        }}
       >
         {/* 海报 */}
         <div className="group relative aspect-[2/3] overflow-hidden">
@@ -29,14 +33,16 @@ export default function ResourceCard({ resource }: Props) {
               src={resource.poster_url}
               alt={resource.title}
               fill
-              className="object-cover transition-transform duration-300 group-hover:scale-105"
+              className="object-cover transition-transform duration-300 group-hover:scale-108"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 200px"
               unoptimized
             />
           ) : (
             <div
               className="w-full h-full flex items-center justify-center text-4xl"
-              style={{ background: "linear-gradient(135deg, #1c1c26 0%, #22222f 100%)" }}
+              style={{
+                background: "linear-gradient(135deg, #16161e 0%, #1e1e2c 100%)",
+              }}
             >
               🎬
             </div>
@@ -45,10 +51,14 @@ export default function ResourceCard({ resource }: Props) {
           {/* 评分角标 */}
           {resource.rating && (
             <div
-              className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold"
-              style={{ background: "rgba(0,0,0,0.75)", color: "#f5c518" }}
+              className="absolute top-2 right-2 flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold"
+              style={{
+                background: "rgba(0,0,0,0.82)",
+                color: "#fbbf24",
+                backdropFilter: "blur(4px)",
+              }}
             >
-              <Star size={10} fill="#f5c518" />
+              <Star size={9} fill="#fbbf24" color="#fbbf24" />
               {resource.rating.toFixed(1)}
             </div>
           )}
@@ -56,11 +66,19 @@ export default function ResourceCard({ resource }: Props) {
           {/* 分类角标 */}
           {resource.category && (
             <div
-              className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium ${CATEGORY_COLORS[resource.category] || "bg-gray-500/20 text-gray-400"}`}
+              className={`absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-semibold ${BADGE_CLASS[resource.category] ?? "bg-gray-500/20 text-gray-300"}`}
             >
               {CAT_LABELS[resource.category] || resource.category}
             </div>
           )}
+
+          {/* 悬停渐变遮罩 */}
+          <div
+            className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
+            style={{
+              background: "linear-gradient(0deg, rgba(229,9,20,0.12) 0%, transparent 50%)",
+            }}
+          />
         </div>
 
         {/* 信息 */}
@@ -78,12 +96,12 @@ export default function ResourceCard({ resource }: Props) {
           )}
 
           <div className="flex items-center justify-between mt-2">
-            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
+            <span className="text-xs font-medium" style={{ color: "#6b7280" }}>
               {resource.year || ""}
             </span>
-            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+            <div className="flex items-center gap-2 text-xs" style={{ color: "#6b7280" }}>
               {resource.link_count > 0 && (
-                <span className="flex items-center gap-0.5">
+                <span className="flex items-center gap-0.5" style={{ color: "#34d399" }}>
                   <Link2 size={10} />
                   {resource.link_count}
                 </span>
