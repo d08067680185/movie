@@ -168,7 +168,7 @@ async def delete_link(link_id: int, db: AsyncSession = Depends(get_db), _=Depend
     link = await db.get(ResourceLink, link_id)
     if not link:
         raise HTTPException(status_code=404)
-    db.delete(link)
+    await db.delete(link)
     await db.commit()
     return {"message": "已删除"}
 
