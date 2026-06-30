@@ -256,6 +256,37 @@ async def create_tmdb_source(
     return {"id": source.id, "name": source.name, "message": "创建成功，可立即触发爬取"}
 
 
+@router.post("/change-password")
+async def change_password(
+    new_password: str,
+    _=Depends(verify_admin),
+):
+    """修改管理员密码，写入 .env 并更新内存"""
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="密码至少 6 位")
+    settings.ADMIN_PASSWORD = new_password
+    env_path = ".env"
+    try:
+        import os
+        lines = []
+        found = False
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    if line.startswith("ADMIN_PASSWORD="):
+                        lines.append(f"ADMIN_PASSWORD={new_password}\n")
+                        found = True
+                    else:
+                        lines.append(line)
+        if not found:
+            lines.append(f"ADMIN_PASSWORD={new_password}\n")
+        with open(env_path, "w") as f:
+            f.writelines(lines)
+    except Exception as e:
+        pass  # 写文件失败不影响内存已更新
+    return {"message": "密码已修改"}
+
+
 @router.post("/batch-import", response_model=BatchImportResult)
 async def batch_import(
     items: List[BatchResourceIn],

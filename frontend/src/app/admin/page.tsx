@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image } from "lucide-react";
+import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image, Lock, FilePlus } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -66,6 +66,21 @@ export default function AdminPage() {
   const [batchJson, setBatchJson] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchResult, setBatchResult] = useState<{ created: number; updated: number; links_added: number; skipped: number; errors: string[] } | null>(null);
+  // 密码修改
+  const [pwForm, setPwForm] = useState({ newPw: "", confirmPw: "" });
+  const [pwMsg, setPwMsg] = useState("");
+  const [pwLoading, setPwLoading] = useState(false);
+  // 手动添加单条资源
+  const [addResForm, setAddResForm] = useState({
+    title: "", title_en: "", year: "", category: "电影", genre: "",
+    country: "", synopsis: "", poster_url: "", rating: "",
+  });
+  const [addResResult, setAddResResult] = useState<{ id: number; title: string } | null>(null);
+  const [addResMsg, setAddResMsg] = useState("");
+  const [addResRunning, setAddResRunning] = useState(false);
+  // 新资源的链接
+  const [addResLinkForm, setAddResLinkForm] = useState({ url: "", link_type: "pan_quark", password: "" });
+  const [addResLinkMsg, setAddResLinkMsg] = useState("");
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -277,6 +292,78 @@ export default function AdminPage() {
     }
   }
 
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (pwForm.newPw !== pwForm.confirmPw) { setPwMsg("两次密码不一致"); return; }
+    if (pwForm.newPw.length < 6) { setPwMsg("密码至少 6 位"); return; }
+    setPwLoading(true);
+    setPwMsg("");
+    const sp = new URLSearchParams({ new_password: pwForm.newPw });
+    const resp = await apiFetch(`/api/admin/change-password?${sp}`, { method: "POST" }, token);
+    if (resp.ok) {
+      setPwMsg("✓ 密码修改成功，请牢记新密码");
+      setToken(pwForm.newPw);
+      setPwForm({ newPw: "", confirmPw: "" });
+    } else {
+      const d = await resp.json().catch(() => ({}));
+      setPwMsg(d.detail || "修改失败");
+    }
+    setPwLoading(false);
+  }
+
+  async function addResource(e: React.FormEvent) {
+    e.preventDefault();
+    setAddResRunning(true);
+    setAddResMsg("");
+    setAddResResult(null);
+    const body: Record<string, string | number | undefined> = { title: addResForm.title };
+    if (addResForm.title_en) body.title_en = addResForm.title_en;
+    if (addResForm.year) body.year = parseInt(addResForm.year);
+    if (addResForm.category) body.category = addResForm.category;
+    if (addResForm.genre) body.genre = addResForm.genre;
+    if (addResForm.country) body.country = addResForm.country;
+    if (addResForm.synopsis) body.synopsis = addResForm.synopsis;
+    if (addResForm.poster_url) body.poster_url = addResForm.poster_url;
+    if (addResForm.rating) body.rating = parseFloat(addResForm.rating);
+    const resp = await apiFetch("/api/admin/resources", { method: "POST", body: JSON.stringify(body) }, token);
+    if (resp.ok) {
+      const data = await resp.json();
+      setAddResResult(data);
+      setAddResMsg(`✓ 资源已添加 (ID: ${data.id})`);
+      setAddResForm({ title: "", title_en: "", year: "", category: "电影", genre: "", country: "", synopsis: "", poster_url: "", rating: "" });
+      setAddResLinkForm({ url: "", link_type: "pan_quark", password: "" });
+      setAddResLinkMsg("");
+      loadData();
+    } else {
+      const d = await resp.json().catch(() => ({}));
+      setAddResMsg(d.detail || "添加失败");
+    }
+    setAddResRunning(false);
+  }
+
+  async function addResLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!addResResult) return;
+    const src = sources.find(s => s.name === "手动导入");
+    const sourceId = src?.id || 1;
+    const resp = await apiFetch("/api/admin/links", {
+      method: "POST",
+      body: JSON.stringify({
+        resource_id: addResResult.id,
+        source_id: sourceId,
+        url: addResLinkForm.url,
+        link_type: addResLinkForm.link_type,
+        password: addResLinkForm.password || undefined,
+      }),
+    }, token);
+    if (resp.ok) {
+      setAddResLinkMsg("✓ 链接已添加");
+      setAddResLinkForm({ url: "", link_type: "pan_quark", password: "" });
+    } else {
+      setAddResLinkMsg("添加失败");
+    }
+  }
+
   const inputStyle: React.CSSProperties = {
     background: "rgba(255,255,255,0.06)",
     border: "1px solid rgba(255,255,255,0.1)",
@@ -369,6 +456,197 @@ export default function AdminPage() {
             ))}
           </div>
         )}
+
+        {/* ══ 账号密码管理 ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(251,191,36,0.25)" }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Lock size={18} style={{ color: "#fbbf24" }} />
+            <h2 className="text-lg font-bold">账号密码管理</h2>
+          </div>
+          <form onSubmit={changePassword} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>新密码（至少 6 位）</label>
+                <input
+                  type="password"
+                  value={pwForm.newPw}
+                  onChange={e => setPwForm(f => ({ ...f, newPw: e.target.value }))}
+                  placeholder="输入新密码"
+                  required
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}
+                />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>确认新密码</label>
+                <input
+                  type="password"
+                  value={pwForm.confirmPw}
+                  onChange={e => setPwForm(f => ({ ...f, confirmPw: e.target.value }))}
+                  placeholder="再次输入新密码"
+                  required
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <button type="submit" disabled={pwLoading}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #d97706 0%, #b45309 100%)" }}>
+                <Lock size={14} />
+                {pwLoading ? "修改中..." : "修改密码"}
+              </button>
+              {pwMsg && (
+                <span className="text-sm" style={{ color: pwMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{pwMsg}</span>
+              )}
+            </div>
+          </form>
+        </div>
+
+        {/* ══ 手动添加单条资源 ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(74,222,128,0.25)" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <FilePlus size={18} style={{ color: "#4ade80" }} />
+            <h2 className="text-lg font-bold">手动添加单条资源</h2>
+          </div>
+          <p className="text-xs mb-4" style={{ color: "#606070" }}>填写表单新增一条影视资源，添加成功后可立即为其添加下载链接。</p>
+          <form onSubmit={addResource} className="space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+              <div className="sm:col-span-2">
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>标题 *</label>
+                <input value={addResForm.title} onChange={e => setAddResForm(f => ({ ...f, title: e.target.value }))}
+                  placeholder="影视名称（必填）" required
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>分类</label>
+                <select value={addResForm.category} onChange={e => setAddResForm(f => ({ ...f, category: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+                  <option value="电影">电影</option>
+                  <option value="电视剧">电视剧</option>
+                  <option value="动漫">动漫</option>
+                  <option value="资源">资源</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>英文名</label>
+                <input value={addResForm.title_en} onChange={e => setAddResForm(f => ({ ...f, title_en: e.target.value }))}
+                  placeholder="English Title"
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>年份</label>
+                <input type="number" min="1900" max="2099" value={addResForm.year}
+                  onChange={e => setAddResForm(f => ({ ...f, year: e.target.value }))}
+                  placeholder="2024"
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>评分（0-10）</label>
+                <input type="number" min="0" max="10" step="0.1" value={addResForm.rating}
+                  onChange={e => setAddResForm(f => ({ ...f, rating: e.target.value }))}
+                  placeholder="8.5"
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>类型（风格）</label>
+                <input value={addResForm.genre} onChange={e => setAddResForm(f => ({ ...f, genre: e.target.value }))}
+                  placeholder="动作/爱情/科幻"
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div>
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>国家/地区</label>
+                <input value={addResForm.country} onChange={e => setAddResForm(f => ({ ...f, country: e.target.value }))}
+                  placeholder="中国 / 美国 / 日本"
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>封面图 URL</label>
+                <input value={addResForm.poster_url} onChange={e => setAddResForm(f => ({ ...f, poster_url: e.target.value }))}
+                  placeholder="https://..."
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="block text-xs mb-1" style={{ color: "#606070" }}>简介</label>
+                <textarea value={addResForm.synopsis} onChange={e => setAddResForm(f => ({ ...f, synopsis: e.target.value }))}
+                  placeholder="影片简介..."
+                  rows={3}
+                  className="w-full px-3 py-2 rounded-lg outline-none text-sm resize-y"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <button type="submit" disabled={addResRunning || !addResForm.title.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)" }}>
+                <FilePlus size={14} />
+                {addResRunning ? "添加中..." : "添加资源"}
+              </button>
+              {addResMsg && (
+                <span className="text-sm" style={{ color: addResMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResMsg}</span>
+              )}
+            </div>
+          </form>
+
+          {/* 添加成功后的链接区 */}
+          {addResResult && (
+            <div className="mt-5 pt-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-sm mb-3" style={{ color: "#4ade80" }}>
+                ✓ 已创建《{addResResult.title}》(ID: {addResResult.id})，可为其添加下载链接：
+              </p>
+              <form onSubmit={addResLink} className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接类型</label>
+                  <select value={addResLinkForm.link_type} onChange={e => setAddResLinkForm(f => ({ ...f, link_type: e.target.value }))}
+                    className="px-3 py-2 rounded-lg outline-none text-sm"
+                    style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+                    <option value="pan_quark">夸克网盘</option>
+                    <option value="pan_baidu">百度网盘</option>
+                    <option value="pan_aliyun">阿里云盘</option>
+                    <option value="magnet">磁力链接</option>
+                    <option value="direct">直链</option>
+                  </select>
+                </div>
+                <div className="flex-1 min-w-48">
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接地址</label>
+                  <input value={addResLinkForm.url} onChange={e => setAddResLinkForm(f => ({ ...f, url: e.target.value }))}
+                    placeholder="https://pan.quark.cn/s/..." required
+                    className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div className="w-28">
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>提取码</label>
+                  <input value={addResLinkForm.password} onChange={e => setAddResLinkForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="可选"
+                    className="w-full px-3 py-2 rounded-lg outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <button type="submit"
+                    className="px-4 py-2 rounded-lg font-semibold text-white text-sm"
+                    style={{ background: "#e50914" }}>
+                    添加链接
+                  </button>
+                  {addResLinkMsg && <span className="text-xs" style={{ color: addResLinkMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResLinkMsg}</span>}
+                </div>
+              </form>
+              <button onClick={() => { setAddResResult(null); setAddResMsg(""); }}
+                className="mt-3 text-xs"
+                style={{ color: "#606070" }}>
+                添加另一条资源 →
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* ══ 手动批量导入 ══ */}
         <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(34,211,238,0.25)" }}>
