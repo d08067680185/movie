@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Search, TrendingUp, Film, Star, Clock, X } from "lucide-react";
 import { getHotResources, getLatestResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
 import ResourceCardComponent from "@/components/ResourceCard";
+import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
 const CATEGORY_META = [
@@ -48,6 +49,7 @@ export default function HomeContent() {
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
+      <Navbar />
       {/* Hero */}
       <div
         className="relative overflow-hidden"
