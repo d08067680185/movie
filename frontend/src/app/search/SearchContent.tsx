@@ -250,8 +250,8 @@ export default function SearchContent() {
                   <ChevronRight size={16} />
                 </button>
 
-                {/* 页码跳转 */}
-                <div className="flex items-center gap-1.5 ml-2">
+                {/* 页码跳转（小屏隐藏） */}
+                <div className="hidden sm:flex items-center gap-1.5 ml-2">
                   <span className="text-xs" style={{ color: "var(--text-muted)" }}>跳至</span>
                   <input
                     type="number"

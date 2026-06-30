@@ -1,3 +1,5 @@
+"use client";
+import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Star, Link2, Eye } from "lucide-react";
@@ -16,6 +18,8 @@ const BADGE_CLASS: Record<string, string> = {
 };
 
 export default function ResourceCard({ resource }: Props) {
+  const [imgError, setImgError] = useState(false);
+
   return (
     <Link href={`/detail/${resource.id}`} className="block resource-card">
       <div
@@ -28,7 +32,7 @@ export default function ResourceCard({ resource }: Props) {
       >
         {/* 海报 */}
         <div className="group relative aspect-[2/3] overflow-hidden">
-          {resource.poster_url ? (
+          {resource.poster_url && !imgError ? (
             <Image
               src={resource.poster_url}
               alt={resource.title}
@@ -36,6 +40,7 @@ export default function ResourceCard({ resource }: Props) {
               className="object-cover transition-transform duration-300 group-hover:scale-[1.08]"
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 200px"
               unoptimized
+              onError={() => setImgError(true)}
             />
           ) : (
             <div

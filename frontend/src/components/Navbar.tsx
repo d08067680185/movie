@@ -105,7 +105,7 @@ export default function Navbar() {
             { label: "动漫", val: "anime", color: "#f472b6" },
             { label: "电影", val: "movie", color: "#60a5fa" },
             { label: "电视剧", val: "tv", color: "#a78bfa" },
-            { label: "资源", val: "variety", color: "#fb923c" },
+            { label: "经典资源", val: "variety", color: "#fb923c" },
           ].map(({ label, val, color }) => (
             <Link
               key={val}

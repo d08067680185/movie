@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus } from "lucide-react";
 
@@ -58,6 +58,7 @@ export default function AdminPage() {
   const [panRunning, setPanRunning] = useState(false);
   const [bgmForm, setBgmForm] = useState({ max_per_run: "50", delay: "1.0", overwrite: false });
   const [resSearch, setResSearch] = useState("");
+  const [resCategory, setResCategory] = useState("");
   const [resPage, setResPage] = useState(1);
   const [resData, setResData] = useState<{ total: number; items: ResourceDetail[] } | null>(null);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -82,6 +83,13 @@ export default function AdminPage() {
   interface LinkRow { url: string; link_type: string; password: string }
   const [addResLinks, setAddResLinks] = useState<LinkRow[]>([]);
   const [linkInput, setLinkInput] = useState({ url: "", link_type: "pan_quark", password: "" });
+
+  // msg 5 秒后自动消除
+  useEffect(() => {
+    if (!msg) return;
+    const t = setTimeout(() => setMsg(""), 5000);
+    return () => clearTimeout(t);
+  }, [msg]);
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -194,7 +202,8 @@ export default function AdminPage() {
 
   async function deleteLink(linkId: number) {
     if (!confirm("确认删除此链接？")) return;
-    await apiFetch(`/api/admin/links/${linkId}`, { method: "DELETE" }, token);
+    const resp = await apiFetch(`/api/admin/links/${linkId}`, { method: "DELETE" }, token);
+    setMsg(resp.ok ? "链接已删除" : "删除失败，请重试");
     loadResources();
   }
 

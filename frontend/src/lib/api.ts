@@ -63,10 +63,14 @@ export interface Stats {
   categories: Record<string, number>;
 }
 
-async function fetchApi<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { next: { revalidate: 60 } });
+async function fetchApi<T>(path: string, cacheSeconds = 60): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, { next: { revalidate: cacheSeconds } });
   if (!res.ok) throw new Error(`API error: ${res.status}`);
   return res.json();
+}
+
+export async function getResource(id: number): Promise<ResourceDetail> {
+  return fetchApi(`/api/resource/${id}`, 0);
 }
 
 export async function searchResources(params: {
@@ -87,10 +91,6 @@ export async function searchResources(params: {
   if (params.page) sp.set("page", String(params.page));
   if (params.page_size) sp.set("page_size", String(params.page_size));
   return fetchApi(`/api/search?${sp.toString()}`);
-}
-
-export async function getResource(id: number): Promise<ResourceDetail> {
-  return fetchApi(`/api/resource/${id}`);
 }
 
 export async function getHotResources(): Promise<ResourceCard[]> {
