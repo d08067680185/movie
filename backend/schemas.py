@@ -72,6 +72,7 @@ class SourceOut(BaseModel):
     id: int
     name: str
     base_url: Optional[str]
+    spider_class: Optional[str]
     is_active: bool
     last_crawled: Optional[datetime]
     total_resources: int

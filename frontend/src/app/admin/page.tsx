@@ -310,8 +310,7 @@ export default function AdminPage() {
     if (pwForm.newPw.length < 6) { setPwMsg("密码至少 6 位"); return; }
     setPwLoading(true);
     setPwMsg("");
-    const sp = new URLSearchParams({ new_password: pwForm.newPw });
-    const resp = await apiFetch(`/api/admin/change-password?${sp}`, { method: "POST" }, token);
+    const resp = await apiFetch("/api/admin/change-password", { method: "POST", body: JSON.stringify({ new_password: pwForm.newPw }) }, token);
     if (resp.ok) {
       const d = await resp.json().catch(() => ({}));
       setPwMsg(d.warning ? `⚠️ ${d.warning}` : `✓ ${d.message}`);

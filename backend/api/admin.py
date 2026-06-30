@@ -70,7 +70,10 @@ async def list_logs(limit: int = 20, db: AsyncSession = Depends(get_db), _=Depen
 
 @router.post("/resources", response_model=dict)
 async def create_resource(data: ResourceCreate, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
-    resource = Resource(**data.model_dump(exclude_none=True))
+    dump = data.model_dump(exclude_none=True)
+    if "category" in dump:
+        dump["category"] = _CAT_NORM.get(dump["category"], dump["category"])
+    resource = Resource(**dump)
     db.add(resource)
     await db.commit()
     await db.refresh(resource)
@@ -90,6 +93,15 @@ async def delete_resource(resource_id: int, db: AsyncSession = Depends(get_db), 
 
 @router.post("/links", response_model=dict)
 async def create_link(data: LinkCreate, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    # 若 source_id 对应的 Source 不存在，自动使用/创建"手动导入"
+    src = await db.get(Source, data.source_id)
+    if not src:
+        src = (await db.execute(select(Source).where(Source.name == "手动导入"))).scalar_one_or_none()
+        if not src:
+            src = Source(name="手动导入", spider_class="manual", is_active=True, config={})
+            db.add(src)
+            await db.flush()
+        data = data.model_copy(update={"source_id": src.id})
     link = ResourceLink(**data.model_dump(exclude_none=True))
     db.add(link)
     await db.commit()
@@ -169,6 +181,16 @@ async def invalidate_link(link_id: int, db: AsyncSession = Depends(get_db), _=De
     link.is_valid = False
     await db.commit()
     return {"message": "marked invalid"}
+
+
+@router.patch("/links/{link_id}/validate")
+async def validate_link(link_id: int, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    link = await db.get(ResourceLink, link_id)
+    if not link:
+        raise HTTPException(status_code=404)
+    link.is_valid = True
+    await db.commit()
+    return {"message": "marked valid"}
 
 
 @router.post("/bangumi-enrich")
@@ -258,9 +280,10 @@ async def create_tmdb_source(
 
 @router.post("/change-password")
 async def change_password(
-    new_password: str,
+    payload: dict,
     _=Depends(verify_admin),
 ):
+    new_password: str = payload.get("new_password", "")
     """修改管理员密码，写入 .env 并更新内存"""
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="密码至少 6 位")
@@ -320,7 +343,7 @@ async def batch_import(
 
             if existing:
                 res = existing
-                updated += 1
+                updated += 1  # 已存在，追加链接；不覆盖元数据
             else:
                 cat = _CAT_NORM.get(item.category, item.category)
                 if item.category not in _CAT_NORM and item.category not in _CAT_NORM.values():
