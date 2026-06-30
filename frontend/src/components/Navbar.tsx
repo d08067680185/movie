@@ -11,13 +11,18 @@ export default function Navbar() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setQ(searchParams.get("q") || "");
   }, [searchParams]);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem("movie-theme");
-      if (saved === "light" || saved === "dark") setTheme(saved);
+      if (saved === "light" || saved === "dark") {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setTheme(saved);
+        document.documentElement.setAttribute("data-theme", saved);
+      }
     } catch {}
   }, []);
 

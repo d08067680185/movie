@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Suspense, use } from "react";
 import DetailContent from "./DetailContent";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Server-side SSR: use BACKEND_URL (runtime env), not NEXT_PUBLIC_API_URL (build-time baked)
+const API = process.env.BACKEND_URL ?? "http://localhost:8000";
 
 export async function generateMetadata({
   params,

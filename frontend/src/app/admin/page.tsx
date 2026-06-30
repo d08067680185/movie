@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image, Lock, FilePlus } from "lucide-react";
+import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -75,7 +75,7 @@ export default function AdminPage() {
     title: "", title_en: "", year: "", category: "电影", genre: "",
     country: "", synopsis: "", poster_url: "", rating: "",
   });
-  const [addResResult, setAddResResult] = useState<{ id: number; title: string } | null>(null);
+  const [addResResultId, setAddResResultId] = useState<number | null>(null);
   const [addResMsg, setAddResMsg] = useState("");
   const [addResRunning, setAddResRunning] = useState(false);
   // 表单内的链接列表（提交时一起创建）
@@ -192,7 +192,7 @@ export default function AdminPage() {
     if (resp.ok) setResData(await resp.json());
   }
 
-  async function deleteLink(linkId: number, resourceId: number) {
+  async function deleteLink(linkId: number) {
     if (!confirm("确认删除此链接？")) return;
     await apiFetch(`/api/admin/links/${linkId}`, { method: "DELETE" }, token);
     loadResources();
@@ -328,7 +328,7 @@ export default function AdminPage() {
     e.preventDefault();
     setAddResRunning(true);
     setAddResMsg("");
-    setAddResResult(null);
+    setAddResResultId(null);
     const body: Record<string, string | number | undefined> = { title: addResForm.title };
     if (addResForm.title_en) body.title_en = addResForm.title_en;
     if (addResForm.year) body.year = parseInt(addResForm.year);
@@ -352,7 +352,7 @@ export default function AdminPage() {
         }, token);
         if (lr.ok) linkCount++;
       }
-      setAddResResult(data);
+      setAddResResultId(data.id);
       setAddResMsg(`✓ 已添加《${data.title}》(ID: ${data.id})${linkCount > 0 ? `，含 ${linkCount} 条链接` : ""}`);
       setAddResForm({ title: "", title_en: "", year: "", category: "电影", genre: "", country: "", synopsis: "", poster_url: "", rating: "" });
       setAddResLinks([]);
@@ -656,7 +656,13 @@ export default function AdminPage() {
                 {addResRunning ? "提交中..." : `添加资源${addResLinks.length > 0 ? `（含 ${addResLinks.length} 条链接）` : ""}`}
               </button>
               {addResMsg && (
-                <span className="text-sm" style={{ color: addResMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResMsg}</span>
+                <span className="text-sm flex items-center gap-2" style={{ color: addResMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>
+                  {addResMsg}
+                  {addResResultId && (
+                    <Link href={`/detail/${addResResultId}`} target="_blank"
+                      className="underline text-xs" style={{ color: "#60a5fa" }}>查看详情</Link>
+                  )}
+                </span>
               )}
             </div>
           </form>
@@ -801,7 +807,7 @@ export default function AdminPage() {
         {/* ══ Bangumi 封面补全 ══ */}
         <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(168,85,247,0.25)" }}>
           <div className="flex items-center gap-2 mb-1">
-            <Image size={18} style={{ color: "#a855f7" }} />
+            <ImageIcon size={18} style={{ color: "#a855f7" }} />
             <h2 className="text-lg font-bold">Bangumi 封面补全</h2>
             <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(168,85,247,0.12)", color: "#c084fc" }}>
               免费 · 无需 Key · 国漫覆盖率高
@@ -836,7 +842,7 @@ export default function AdminPage() {
             <button type="submit" disabled={bgmRunning}
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-white disabled:opacity-50"
               style={{ background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)" }}>
-              <Image size={14} />
+              <ImageIcon size={14} />
               {bgmRunning ? "补全中..." : `开始补全（${bgmForm.max_per_run} 条动漫封面）`}
             </button>
           </form>
@@ -936,7 +942,8 @@ export default function AdminPage() {
                   <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                     onClick={() => setExpandedId(expandedId === res.id ? null : res.id)}>
                     {res.poster_url
-                      ? <img src={res.poster_url} className="w-8 h-11 object-cover rounded flex-shrink-0" />
+                      // eslint-disable-next-line @next/next/no-img-element
+                      ? <img src={res.poster_url} alt={res.title} className="w-8 h-11 object-cover rounded flex-shrink-0" />
                       : <div className="w-8 h-11 rounded flex-shrink-0" style={{ background: "rgba(255,255,255,0.06)" }} />}
                     <div className="flex-1 min-w-0">
                       <div className="font-medium text-sm truncate">{res.title}</div>
@@ -979,7 +986,7 @@ export default function AdminPage() {
                               {lk.url}
                             </span>
                             {lk.password && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>密码:{lk.password}</span>}
-                            <button onClick={() => deleteLink(lk.id, res.id)}
+                            <button onClick={() => deleteLink(lk.id)}
                               className="text-xs px-2 py-0.5 rounded flex-shrink-0"
                               style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>删除</button>
                           </div>
