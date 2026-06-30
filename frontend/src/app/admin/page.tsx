@@ -78,9 +78,10 @@ export default function AdminPage() {
   const [addResResult, setAddResResult] = useState<{ id: number; title: string } | null>(null);
   const [addResMsg, setAddResMsg] = useState("");
   const [addResRunning, setAddResRunning] = useState(false);
-  // 新资源的链接
-  const [addResLinkForm, setAddResLinkForm] = useState({ url: "", link_type: "pan_quark", password: "" });
-  const [addResLinkMsg, setAddResLinkMsg] = useState("");
+  // 表单内的链接列表（提交时一起创建）
+  interface LinkRow { url: string; link_type: string; password: string }
+  const [addResLinks, setAddResLinks] = useState<LinkRow[]>([]);
+  const [linkInput, setLinkInput] = useState({ url: "", link_type: "pan_quark", password: "" });
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -328,11 +329,22 @@ export default function AdminPage() {
     const resp = await apiFetch("/api/admin/resources", { method: "POST", body: JSON.stringify(body) }, token);
     if (resp.ok) {
       const data = await resp.json();
+      // 同时写入所有链接
+      const src = sources.find(s => s.name === "手动导入");
+      const sourceId = src?.id || 1;
+      let linkCount = 0;
+      for (const lk of addResLinks) {
+        const lr = await apiFetch("/api/admin/links", {
+          method: "POST",
+          body: JSON.stringify({ resource_id: data.id, source_id: sourceId, url: lk.url, link_type: lk.link_type, password: lk.password || undefined }),
+        }, token);
+        if (lr.ok) linkCount++;
+      }
       setAddResResult(data);
-      setAddResMsg(`✓ 资源已添加 (ID: ${data.id})`);
+      setAddResMsg(`✓ 已添加《${data.title}》(ID: ${data.id})${linkCount > 0 ? `，含 ${linkCount} 条链接` : ""}`);
       setAddResForm({ title: "", title_en: "", year: "", category: "电影", genre: "", country: "", synopsis: "", poster_url: "", rating: "" });
-      setAddResLinkForm({ url: "", link_type: "pan_quark", password: "" });
-      setAddResLinkMsg("");
+      setAddResLinks([]);
+      setLinkInput({ url: "", link_type: "pan_quark", password: "" });
       loadData();
     } else {
       const d = await resp.json().catch(() => ({}));
@@ -341,27 +353,10 @@ export default function AdminPage() {
     setAddResRunning(false);
   }
 
-  async function addResLink(e: React.FormEvent) {
-    e.preventDefault();
-    if (!addResResult) return;
-    const src = sources.find(s => s.name === "手动导入");
-    const sourceId = src?.id || 1;
-    const resp = await apiFetch("/api/admin/links", {
-      method: "POST",
-      body: JSON.stringify({
-        resource_id: addResResult.id,
-        source_id: sourceId,
-        url: addResLinkForm.url,
-        link_type: addResLinkForm.link_type,
-        password: addResLinkForm.password || undefined,
-      }),
-    }, token);
-    if (resp.ok) {
-      setAddResLinkMsg("✓ 链接已添加");
-      setAddResLinkForm({ url: "", link_type: "pan_quark", password: "" });
-    } else {
-      setAddResLinkMsg("添加失败");
-    }
+  function addLinkRow() {
+    if (!linkInput.url.trim()) return;
+    setAddResLinks(l => [...l, { ...linkInput }]);
+    setLinkInput(f => ({ ...f, url: "", password: "" }));
   }
 
   const inputStyle: React.CSSProperties = {
@@ -584,29 +579,32 @@ export default function AdminPage() {
                   style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
               </div>
             </div>
-            <div className="flex items-center gap-4">
-              <button type="submit" disabled={addResRunning || !addResForm.title.trim()}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-white disabled:opacity-50"
-                style={{ background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)" }}>
-                <FilePlus size={14} />
-                {addResRunning ? "添加中..." : "添加资源"}
-              </button>
-              {addResMsg && (
-                <span className="text-sm" style={{ color: addResMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResMsg}</span>
+            {/* ── 下载链接（内嵌在表单里）── */}
+            <div className="pt-3 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
+              <p className="text-xs mb-2 font-medium" style={{ color: "#a0a0b0" }}>下载链接（可选，可添加多条）</p>
+              {/* 已添加的链接列表 */}
+              {addResLinks.length > 0 && (
+                <div className="space-y-1 mb-3">
+                  {addResLinks.map((lk, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
+                      style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+                      <span className="px-1.5 py-0.5 rounded flex-shrink-0"
+                        style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80" }}>
+                        {lk.link_type.replace("pan_", "")}
+                      </span>
+                      <span className="flex-1 truncate font-mono" style={{ color: "#c0c0d0" }}>{lk.url}</span>
+                      {lk.password && <span style={{ color: "#a0a0b0" }}>密码:{lk.password}</span>}
+                      <button type="button" onClick={() => setAddResLinks(l => l.filter((_, j) => j !== i))}
+                        className="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                        style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>删除</button>
+                    </div>
+                  ))}
+                </div>
               )}
-            </div>
-          </form>
-
-          {/* 添加成功后的链接区 */}
-          {addResResult && (
-            <div className="mt-5 pt-5 border-t" style={{ borderColor: "rgba(255,255,255,0.08)" }}>
-              <p className="text-sm mb-3" style={{ color: "#4ade80" }}>
-                ✓ 已创建《{addResResult.title}》(ID: {addResResult.id})，可为其添加下载链接：
-              </p>
-              <form onSubmit={addResLink} className="flex flex-wrap gap-3 items-end">
+              {/* 输入新链接行 */}
+              <div className="flex flex-wrap gap-2 items-end">
                 <div>
-                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接类型</label>
-                  <select value={addResLinkForm.link_type} onChange={e => setAddResLinkForm(f => ({ ...f, link_type: e.target.value }))}
+                  <select value={linkInput.link_type} onChange={e => setLinkInput(f => ({ ...f, link_type: e.target.value }))}
                     className="px-3 py-2 rounded-lg outline-none text-sm"
                     style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
                     <option value="pan_quark">夸克网盘</option>
@@ -617,35 +615,39 @@ export default function AdminPage() {
                   </select>
                 </div>
                 <div className="flex-1 min-w-48">
-                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接地址</label>
-                  <input value={addResLinkForm.url} onChange={e => setAddResLinkForm(f => ({ ...f, url: e.target.value }))}
-                    placeholder="https://pan.quark.cn/s/..." required
+                  <input value={linkInput.url} onChange={e => setLinkInput(f => ({ ...f, url: e.target.value }))}
+                    onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addLinkRow(); } }}
+                    placeholder="粘贴链接地址..."
                     className="w-full px-3 py-2 rounded-lg outline-none text-sm"
                     style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
                 </div>
                 <div className="w-28">
-                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>提取码</label>
-                  <input value={addResLinkForm.password} onChange={e => setAddResLinkForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder="可选"
+                  <input value={linkInput.password} onChange={e => setLinkInput(f => ({ ...f, password: e.target.value }))}
+                    placeholder="提取码（选填）"
                     className="w-full px-3 py-2 rounded-lg outline-none text-sm"
                     style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <button type="submit"
-                    className="px-4 py-2 rounded-lg font-semibold text-white text-sm"
-                    style={{ background: "#e50914" }}>
-                    添加链接
-                  </button>
-                  {addResLinkMsg && <span className="text-xs" style={{ color: addResLinkMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResLinkMsg}</span>}
-                </div>
-              </form>
-              <button onClick={() => { setAddResResult(null); setAddResMsg(""); }}
-                className="mt-3 text-xs"
-                style={{ color: "#606070" }}>
-                添加另一条资源 →
-              </button>
+                <button type="button" onClick={addLinkRow}
+                  className="px-4 py-2 rounded-lg text-sm font-medium"
+                  style={{ background: "rgba(74,222,128,0.15)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)" }}>
+                  + 加入列表
+                </button>
+              </div>
+              <p className="text-xs mt-1.5" style={{ color: "#404050" }}>按 Enter 或点「加入列表」暂存，点「添加资源」时一起提交</p>
             </div>
-          )}
+
+            <div className="flex items-center gap-4 pt-1">
+              <button type="submit" disabled={addResRunning || !addResForm.title.trim()}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-semibold text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #16a34a 0%, #15803d 100%)" }}>
+                <FilePlus size={14} />
+                {addResRunning ? "提交中..." : `添加资源${addResLinks.length > 0 ? `（含 ${addResLinks.length} 条链接）` : ""}`}
+              </button>
+              {addResMsg && (
+                <span className="text-sm" style={{ color: addResMsg.startsWith("✓") ? "#4ade80" : "#f87171" }}>{addResMsg}</span>
+              )}
+            </div>
+          </form>
         </div>
 
         {/* ══ 手动批量导入 ══ */}
