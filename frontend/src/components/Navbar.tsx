@@ -67,7 +67,7 @@ export default function Navbar() {
       }}
       className="sticky top-0 z-50"
     >
-      <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-6">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-6">
         {/* 移动端汉堡按钮 */}
         <button
           className="sm:hidden p-1.5 rounded-lg transition-colors shrink-0"
@@ -79,7 +79,7 @@ export default function Navbar() {
         </button>
         <Link
           href="/"
-          className="text-xl font-bold shrink-0 gradient-text"
+          className="text-base sm:text-xl font-bold shrink-0 gradient-text"
           style={{ letterSpacing: "-0.5px" }}
         >
           影视搜索
@@ -87,7 +87,7 @@ export default function Navbar() {
 
         <form onSubmit={handleSearch} className="flex-1 max-w-xl">
           <div
-            className="flex items-center gap-2 px-3 py-2 rounded-lg search-glow"
+            className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg search-glow"
             style={{
               background: "var(--bg-input)",
               border: "1px solid var(--border-input)",

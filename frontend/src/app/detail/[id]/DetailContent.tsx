@@ -56,14 +56,15 @@ export default function DetailContent({ id }: Props) {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
         <Navbar />
-        <div className="max-w-5xl mx-auto px-4 py-12">
-          <div className="flex gap-8">
-            <div className="skeleton w-48 aspect-[2/3] rounded-xl shrink-0" />
+        <div className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
+          <div className="flex flex-col sm:flex-row gap-6 sm:gap-8">
+            <div className="skeleton w-32 sm:w-48 aspect-[2/3] rounded-xl shrink-0 mx-auto sm:mx-0" />
             <div className="flex-1 space-y-4">
-              <div className="skeleton h-8 w-2/3 rounded" />
-              <div className="skeleton h-5 w-1/3 rounded" />
+              <div className="skeleton h-7 sm:h-8 w-2/3 rounded" />
+              <div className="skeleton h-4 sm:h-5 w-1/3 rounded" />
               <div className="skeleton h-4 w-full rounded" />
               <div className="skeleton h-4 w-5/6 rounded" />
+              <div className="skeleton h-4 w-4/6 rounded" />
             </div>
           </div>
         </div>
@@ -107,9 +108,9 @@ export default function DetailContent({ id }: Props) {
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8">
         {/* 返回 + 分享 */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
           <button
             onClick={() => { if (window.history.length > 1) router.back(); else router.push("/"); }}
             className="flex items-center gap-1.5 text-sm transition-colors hover:text-white"
@@ -133,10 +134,10 @@ export default function DetailContent({ id }: Props) {
         </div>
 
         {/* 主信息区 */}
-        <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 mb-10">
+        <div className="flex flex-col sm:flex-row gap-4 sm:gap-8 mb-8 sm:mb-10">
           {/* 海报 */}
           <div
-            className="w-48 aspect-[2/3] rounded-xl overflow-hidden shrink-0 mx-auto sm:mx-0"
+            className="w-36 sm:w-48 aspect-[2/3] rounded-xl overflow-hidden shrink-0 mx-auto sm:mx-0"
             style={{ border: "1px solid var(--border)" }}
           >
             {resource.poster_url ? (
@@ -176,11 +177,11 @@ export default function DetailContent({ id }: Props) {
               )}
             </div>
 
-            <h1 className="text-3xl font-black mb-1" style={{ letterSpacing: "-0.5px" }}>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-black mb-1" style={{ letterSpacing: "-0.5px" }}>
               {resource.title}
             </h1>
             {resource.title_en && (
-              <p className="text-base mb-2" style={{ color: "var(--text-secondary)" }}>
+              <p className="text-sm sm:text-base mb-2" style={{ color: "var(--text-secondary)" }}>
                 {resource.title_en}
               </p>
             )}
@@ -192,13 +193,13 @@ export default function DetailContent({ id }: Props) {
 
             {/* 评分 */}
             {resource.rating && (
-              <div className="flex items-center gap-2 mb-4">
-                <Star size={20} fill="#f5c518" style={{ color: "#f5c518" }} />
-                <span className="text-2xl font-black" style={{ color: "#f5c518" }}>
+              <div className="flex items-center gap-2 mb-3 sm:mb-4">
+                <Star size={18} fill="#f5c518" style={{ color: "#f5c518" }} />
+                <span className="text-xl sm:text-2xl font-black" style={{ color: "#f5c518" }}>
                   {resource.rating.toFixed(1)}
                 </span>
                 {resource.rating_count && (
-                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  <span className="text-xs sm:text-sm" style={{ color: "var(--text-muted)" }}>
                     ({resource.rating_count.toLocaleString()} 人评价)
                   </span>
                 )}
@@ -271,9 +272,9 @@ export default function DetailContent({ id }: Props) {
 
         {/* 下载资源区 */}
         <div>
-          <div className="flex items-center gap-2 mb-6">
-            <Download size={20} style={{ color: "#e50914" }} />
-            <h2 className="text-xl font-bold">下载资源</h2>
+          <div className="flex items-center gap-2 mb-4 sm:mb-6">
+            <Download size={18} style={{ color: "#e50914" }} />
+            <h2 className="text-lg sm:text-xl font-bold">下载资源</h2>
             <span
               className="text-xs px-2 py-0.5 rounded-full"
               style={{ background: "rgba(229,9,20,0.15)", color: "#ff6070" }}
@@ -313,9 +314,9 @@ export default function DetailContent({ id }: Props) {
 
         {/* 相关推荐 */}
         {related.length > 0 && (
-          <div className="mt-12">
+          <div className="mt-8 sm:mt-12">
             <h2
-              className="text-xl font-bold mb-6"
+              className="text-lg sm:text-xl font-bold mb-4 sm:mb-6"
               style={{ borderLeft: "3px solid #e50914", paddingLeft: "12px" }}
             >
               相关推荐

@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
@@ -31,6 +31,29 @@ const INACTIVE_BTN = {
   color: "var(--text-secondary)",
 } as const;
 
+const HISTORY_KEY = "movie-search-history";
+const MAX_HISTORY = 10;
+
+function readHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveToHistory(q: string) {
+  if (!q.trim()) return;
+  try {
+    const prev = readHistory().filter((h) => h !== q.trim());
+    localStorage.setItem(HISTORY_KEY, JSON.stringify([q.trim(), ...prev].slice(0, MAX_HISTORY)));
+  } catch {}
+}
+
+function clearHistory() {
+  try { localStorage.removeItem(HISTORY_KEY); } catch {}
+}
+
 export default function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -41,10 +64,20 @@ export default function SearchContent() {
 
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [history, setHistory] = useState<string[]>([]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setHistory(readHistory());
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    if (q) {
+      saveToHistory(q);
+      setHistory(readHistory());
+    }
     const year = searchParams.get("year");
     searchResources({
       q,
@@ -84,8 +117,14 @@ export default function SearchContent() {
   const activeGenre = searchParams.get("genre") || "";
   const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre);
   const [jumpInput, setJumpInput] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   const GENRE_OPTIONS = ["动作", "爱情", "喜剧", "科幻", "恐怖", "悬疑", "动画", "奇幻", "历史", "犯罪", "剧情"];
+
+  // 有年份/类型筛选时自动展开
+  useEffect(() => {
+    if (activeYear || activeGenre) setFiltersOpen(true);
+  }, [activeYear, activeGenre]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -93,7 +132,7 @@ export default function SearchContent() {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         {/* 标题 + 结果数 */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
             {q ? (
               <h1 className="text-xl font-bold">
@@ -112,13 +151,37 @@ export default function SearchContent() {
           </div>
         </div>
 
-        {/* 分类筛选 */}
-        <div className="flex flex-wrap gap-2 mb-4">
+        {/* 搜索历史 */}
+        {!q && history.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 mb-5 pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
+            <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>最近搜索:</span>
+            {history.map((h) => (
+              <button
+                key={h}
+                onClick={() => router.push(`/search?q=${encodeURIComponent(h)}`)}
+                className="px-3 py-1 rounded-full text-xs transition-all"
+                style={INACTIVE_BTN}
+              >
+                {h}
+              </button>
+            ))}
+            <button
+              onClick={() => { clearHistory(); setHistory([]); }}
+              className="text-xs ml-auto"
+              style={{ color: "var(--text-muted)" }}
+            >
+              清除历史
+            </button>
+          </div>
+        )}
+
+        {/* 分类 + 排序 + 筛选切换 */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
           {CATEGORIES.map((cat) => (
             <button
               key={cat.value}
               onClick={() => updateSearch({ category: cat.value })}
-              className="px-4 py-1.5 rounded-full text-sm font-medium transition-all"
+              className="px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all"
               style={
                 category === cat.value
                   ? { background: "#e50914", color: "#fff" }
@@ -128,71 +191,78 @@ export default function SearchContent() {
               {cat.label}
             </button>
           ))}
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {/* 排序（始终显示） */}
+            {SORT_OPTIONS.map((s) => (
+              <button
+                key={s.value}
+                onClick={() => updateSearch({ sort: s.value })}
+                className="px-2.5 py-1.5 rounded text-xs transition-all"
+                style={sort === s.value ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
+              >
+                {s.label}
+              </button>
+            ))}
+
+            {/* 移动端：筛选折叠按钮 */}
+            <button
+              onClick={() => setFiltersOpen(v => !v)}
+              className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-all"
+              style={{
+                ...(filtersOpen || activeYear || activeGenre
+                  ? { background: "rgba(229,9,20,0.15)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)" }
+                  : INACTIVE_BTN),
+              }}
+            >
+              <SlidersHorizontal size={12} />
+              筛选{(activeYear || activeGenre) ? " ●" : ""}
+            </button>
+
+            {hasFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-all"
+                style={{ color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", background: "rgba(229,9,20,0.08)" }}
+              >
+                <X size={11} />
+                <span className="hidden sm:inline">清除</span>
+              </button>
+            )}
+          </div>
         </div>
 
-        {/* 年份 + 排序 + 清除筛选 */}
-        <div className="flex flex-wrap items-center gap-3 mb-6">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs self-center" style={{ color: "var(--text-muted)" }}>年份:</span>
+        {/* 年份 + 类型筛选：桌面始终展开，手机可折叠 */}
+        <div className={`${filtersOpen ? "block" : "hidden"} sm:block`}>
+          {/* 年份筛选 */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
+            <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>年份:</span>
             {YEAR_OPTIONS.map((y) => (
               <button
                 key={y}
                 onClick={() => updateSearch({ year: activeYear === String(y) ? "" : String(y) })}
-                className="px-3 py-1 rounded text-xs transition-all"
-                style={
-                  activeYear === String(y)
-                    ? { background: "#e50914", color: "#fff" }
-                    : INACTIVE_BTN
-                }
+                className="px-2.5 py-1 rounded text-xs transition-all"
+                style={activeYear === String(y) ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
               >
                 {y}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>排序:</span>
-            {SORT_OPTIONS.map((s) => (
+          {/* 类型筛选 */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4 sm:mb-6">
+            <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>类型:</span>
+            {GENRE_OPTIONS.map((g) => (
               <button
-                key={s.value}
-                onClick={() => updateSearch({ sort: s.value })}
-                className="px-3 py-1 rounded text-xs transition-all"
-                style={
-                  sort === s.value
-                    ? { background: "#e50914", color: "#fff" }
-                    : INACTIVE_BTN
-                }
+                key={g}
+                onClick={() => updateSearch({ genre: activeGenre === g ? "" : g })}
+                className="px-2.5 py-1 rounded text-xs transition-all"
+                style={activeGenre === g ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
               >
-                {s.label}
+                {g}
               </button>
             ))}
           </div>
-
-          {hasFilters && (
-            <button
-              onClick={clearAllFilters}
-              className="flex items-center gap-1 px-3 py-1 rounded text-xs transition-all"
-              style={{ color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", background: "rgba(229,9,20,0.08)" }}
-            >
-              <X size={11} />
-              清除筛选
-            </button>
-          )}
-        </div>
-
-        {/* 类型筛选 */}
-        <div className="flex flex-wrap items-center gap-2 mb-6">
-          <span className="text-xs self-center" style={{ color: "var(--text-muted)" }}>类型:</span>
-          {GENRE_OPTIONS.map((g) => (
-            <button
-              key={g}
-              onClick={() => updateSearch({ genre: activeGenre === g ? "" : g })}
-              className="px-3 py-1 rounded text-xs transition-all"
-              style={activeGenre === g ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
-            >
-              {g}
-            </button>
-          ))}
         </div>
 
         {/* 结果网格 */}

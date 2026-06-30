@@ -21,113 +21,116 @@ export default function LinkItem({ link, index }: Props) {
 
   return (
     <div
-      className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-lg"
+      className="flex flex-col gap-3 p-3 sm:p-4 rounded-lg"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--border)",
       }}
     >
-      {/* 序号 */}
-      <span
-        className="text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shrink-0"
-        style={{ background: "rgba(255,255,255,0.08)", color: "#a0a0b0" }}
-      >
-        {index + 1}
-      </span>
-
-      {/* 标签组 */}
-      <div className="flex flex-wrap items-center gap-2 flex-1">
-        {/* 类型 */}
+      {/* 标签行 + 序号 */}
+      <div className="flex items-start gap-2.5">
         <span
-          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border font-medium"
-          style={{ background: typeInfo.bg, color: typeInfo.color, borderColor: typeInfo.border }}
+          className="text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+          style={{ background: "rgba(255,255,255,0.08)", color: "#a0a0b0" }}
         >
-          {typeInfo.icon} {typeInfo.label}
+          {index + 1}
         </span>
 
-        {/* 画质 */}
-        {link.quality && QUALITY_COLORS[link.quality] && (
+        <div className="flex flex-wrap items-center gap-1.5 flex-1">
+          {/* 类型 */}
           <span
-            className="text-xs px-2 py-0.5 rounded border font-bold"
-            style={{
-              background: QUALITY_COLORS[link.quality].bg,
-              color: QUALITY_COLORS[link.quality].color,
-              borderColor: QUALITY_COLORS[link.quality].border,
-            }}
+            className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded border font-medium"
+            style={{ background: typeInfo.bg, color: typeInfo.color, borderColor: typeInfo.border }}
           >
-            {link.quality}
+            {typeInfo.icon} {typeInfo.label}
           </span>
-        )}
 
-        {/* 格式 */}
-        {link.format && (
-          <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
-            {link.format}
-          </span>
-        )}
+          {/* 画质 */}
+          {link.quality && QUALITY_COLORS[link.quality] && (
+            <span
+              className="text-xs px-2 py-0.5 rounded border font-bold"
+              style={{
+                background: QUALITY_COLORS[link.quality].bg,
+                color: QUALITY_COLORS[link.quality].color,
+                borderColor: QUALITY_COLORS[link.quality].border,
+              }}
+            >
+              {link.quality}
+            </span>
+          )}
 
-        {/* 字幕 */}
-        {link.subtitle && (
-          <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
-            💬 {link.subtitle}
-          </span>
-        )}
+          {/* 格式 */}
+          {link.format && (
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+              {link.format}
+            </span>
+          )}
 
-        {/* 集数 */}
-        {link.episode_info && (
-          <span className="text-xs" style={{ color: "#a0a0b0" }}>
-            {link.episode_info}
-          </span>
-        )}
+          {/* 字幕 */}
+          {link.subtitle && (
+            <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+              💬 {link.subtitle}
+            </span>
+          )}
 
-        {/* 提取码 */}
-        {link.password && (
-          <span
-            className="text-xs flex items-center gap-1 px-2 py-0.5 rounded"
-            style={{ background: "rgba(245,197,24,0.1)", color: "#f5c518" }}
-          >
-            <Lock size={10} />
-            提取码: {link.password}
-          </span>
-        )}
+          {/* 集数 */}
+          {link.episode_info && (
+            <span className="text-xs" style={{ color: "#a0a0b0" }}>
+              {link.episode_info}
+            </span>
+          )}
 
-        {/* 来源 */}
-        {link.source_name && (
-          <span className="text-xs" style={{ color: "#606070" }}>
-            来源: {link.source_name}
-          </span>
-        )}
+          {/* 提取码 */}
+          {link.password && (
+            <span
+              className="text-xs flex items-center gap-1 px-2 py-0.5 rounded"
+              style={{ background: "rgba(245,197,24,0.1)", color: "#f5c518" }}
+            >
+              <Lock size={10} />
+              提取码: {link.password}
+            </span>
+          )}
+
+          {/* 来源 */}
+          {link.source_name && (
+            <span className="text-xs" style={{ color: "#606070" }}>
+              来源: {link.source_name}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* 操作按钮 */}
-      <div className="flex items-center gap-2 shrink-0">
+      {/* 操作按钮行 — 手机全宽，桌面靠右 */}
+      <div className="flex items-center gap-2 pl-8">
         <button
           onClick={copyUrl}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all"
+          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded text-xs transition-all"
           style={{
             background: copied ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)",
             color: copied ? "#22c55e" : "#a0a0b0",
             border: `1px solid ${copied ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`,
+            minHeight: "36px",
           }}
         >
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? "已复制" : "复制"}
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+          {copied ? "已复制" : "复制链接"}
         </button>
 
         <a
-            href={link.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all"
-            style={{
-              background: "rgba(229,9,20,0.15)",
-              color: "#ff6070",
-              border: "1px solid rgba(229,9,20,0.3)",
-            }}
-          >
-            <ExternalLink size={12} />
-            打开
-          </a>
+          href={link.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 rounded text-xs transition-all"
+          style={{
+            background: "rgba(229,9,20,0.15)",
+            color: "#ff6070",
+            border: "1px solid rgba(229,9,20,0.3)",
+            minHeight: "36px",
+          }}
+        >
+          <ExternalLink size={13} />
+          打开链接
+        </a>
       </div>
     </div>
   );

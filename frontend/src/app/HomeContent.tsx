@@ -81,35 +81,34 @@ export default function HomeContent() {
           }} />
         </div>
 
-        <div className="relative max-w-4xl mx-auto px-4 py-20 text-center">
-          <div className="flex items-center justify-center gap-3 mb-4">
-            <Film size={32} style={{ color: "#e50914" }} />
-            <h1 className="text-4xl font-black gradient-text" style={{ letterSpacing: "-1px" }}>
+        <div className="relative max-w-4xl mx-auto px-4 py-10 sm:py-16 md:py-20 text-center">
+          <div className="flex items-center justify-center gap-2 sm:gap-3 mb-3 sm:mb-4">
+            <Film size={28} className="sm:w-8 sm:h-8" style={{ color: "#e50914" }} />
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black gradient-text" style={{ letterSpacing: "-0.5px" }}>
               影视资源搜索
             </h1>
           </div>
-          <p className="mb-10 text-base" style={{ color: "var(--text-secondary)" }}>
+          <p className="mb-6 sm:mb-10 text-sm sm:text-base" style={{ color: "var(--text-secondary)" }}>
             聚合多源影视资源，一键搜索电影、电视剧、动漫
           </p>
 
           {/* 搜索框 */}
           <form onSubmit={handleSearch} className="max-w-2xl mx-auto">
             <div
-              className="flex items-center gap-3 px-5 py-4 rounded-2xl search-glow"
+              className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 sm:py-4 rounded-2xl search-glow"
               style={{
                 background: "var(--bg-input)",
                 border: "1px solid var(--border-input)",
               }}
             >
-              <Search size={20} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
+              <Search size={18} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
               <input
                 type="text"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="输入电影、电视剧、动漫名称..."
-                className="flex-1 bg-transparent outline-none text-lg"
+                placeholder="搜索电影、电视剧、动漫..."
+                className="flex-1 bg-transparent outline-none text-base sm:text-lg"
                 style={{ color: "var(--text-primary)" }}
-                autoFocus
               />
               {q && (
                 <button
@@ -161,14 +160,14 @@ export default function HomeContent() {
 
           {/* 统计数字 */}
           {stats && (
-            <div className="flex items-center justify-center gap-4 sm:gap-10 mt-10">
+            <div className="flex items-center justify-center gap-4 sm:gap-10 mt-6 sm:mt-10">
               {[
                 { label: "影视资源", value: stats.total_resources.toLocaleString(), color: "#e50914" },
                 { label: "下载链接", value: stats.total_links.toLocaleString(), color: "#60a5fa" },
                 { label: "数据来源", value: stats.total_sources.toString(), color: "#f472b6" },
               ].map((item) => (
                 <div key={item.label} className="text-center">
-                  <div className="text-2xl font-black" style={{ color: item.color }}>
+                  <div className="text-xl sm:text-2xl font-black" style={{ color: item.color }}>
                     {item.value}
                   </div>
                   <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
@@ -185,7 +184,7 @@ export default function HomeContent() {
         {/* 分类导航 */}
         {activeCategories.length > 0 && (
           <div
-            className={`grid gap-4 mb-12 ${
+            className={`grid gap-3 sm:gap-4 mb-8 sm:mb-12 ${
               activeCategories.length === 1
                 ? "grid-cols-1 max-w-xs"
                 : activeCategories.length === 2
@@ -199,7 +198,7 @@ export default function HomeContent() {
               <button
                 key={cat.value}
                 onClick={() => router.push(`/search?category=${cat.value}`)}
-                className="cat-card flex items-center gap-3 p-4 rounded-xl text-left"
+                className="cat-card flex items-center gap-2 sm:gap-3 p-3 sm:p-4 rounded-xl text-left"
                 style={{
                   background: "var(--bg-card)",
                   border: `1px solid var(--border)`,
@@ -213,9 +212,9 @@ export default function HomeContent() {
                   (e.currentTarget as HTMLElement).style.boxShadow = "";
                 }}
               >
-                <span className="text-2xl">{cat.icon}</span>
+                <span className="text-xl sm:text-2xl">{cat.icon}</span>
                 <div>
-                  <div className="font-semibold" style={{ color: cat.color }}>
+                  <div className="font-semibold text-sm sm:text-base" style={{ color: cat.color }}>
                     {cat.label}
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
@@ -228,9 +227,9 @@ export default function HomeContent() {
         )}
 
         {/* 热门资源 */}
-        <div className="flex items-center gap-2 mb-6">
-          <Star size={18} fill="#fbbf24" style={{ color: "#fbbf24" }} />
-          <h2 className="text-xl font-bold">热门资源</h2>
+        <div className="flex items-center gap-2 mb-4 sm:mb-6">
+          <Star size={16} fill="#fbbf24" style={{ color: "#fbbf24" }} />
+          <h2 className="text-lg sm:text-xl font-bold">热门资源</h2>
         </div>
 
         {loading ? (
@@ -264,11 +263,11 @@ export default function HomeContent() {
 
         {/* 最新入库 */}
         {!loading && !error && latestResources.length > 0 && (
-          <div className="mt-14">
-            <div className="flex items-center justify-between mb-6">
+          <div className="mt-10 sm:mt-14">
+            <div className="flex items-center justify-between mb-4 sm:mb-6">
               <div className="flex items-center gap-2">
-                <Clock size={18} style={{ color: "#60a5fa" }} />
-                <h2 className="text-xl font-bold">最新入库</h2>
+                <Clock size={16} style={{ color: "#60a5fa" }} />
+                <h2 className="text-lg sm:text-xl font-bold">最新入库</h2>
               </div>
               <button
                 onClick={() => router.push("/search?sort=latest")}
