@@ -83,6 +83,10 @@ export default function AdminPage() {
   interface LinkRow { url: string; link_type: string; password: string }
   const [addResLinks, setAddResLinks] = useState<LinkRow[]>([]);
   const [linkInput, setLinkInput] = useState({ url: "", link_type: "pan_quark", password: "" });
+  // TMDb API Key 配置
+  const [tmdbKey, setTmdbKey] = useState("");
+  const [tmdbKeyConfigured, setTmdbKeyConfigured] = useState<boolean | null>(null);
+  const [tmdbKeyLoading, setTmdbKeyLoading] = useState(false);
 
   // msg 5 秒后自动消除
   useEffect(() => {
@@ -103,11 +107,12 @@ export default function AdminPage() {
   }
 
   async function loadData(t = token) {
-    const [srcRes, logRes, classRes, statsRes] = await Promise.all([
+    const [srcRes, logRes, classRes, statsRes, keyRes] = await Promise.all([
       apiFetch("/api/admin/sources", {}, t),
       apiFetch("/api/admin/logs", {}, t),
       apiFetch("/api/admin/spider-classes", {}, t),
       fetch(`${API}/api/stats`),
+      apiFetch("/api/admin/tmdb-key-status", {}, t),
     ]);
     if (srcRes.ok) setSources(await srcRes.json());
     if (logRes.ok) setLogs(await logRes.json());
@@ -115,6 +120,10 @@ export default function AdminPage() {
     if (statsRes.ok) {
       const s = await statsRes.json();
       setStats({ 影视资源: s.total_resources, 下载链接: s.total_links, 数据来源: s.total_sources });
+    }
+    if (keyRes.ok) {
+      const k = await keyRes.json();
+      setTmdbKeyConfigured(k.configured);
     }
   }
 
@@ -385,6 +394,41 @@ export default function AdminPage() {
     if (!linkInput.url.trim()) return;
     setAddResLinks(l => [...l, { ...linkInput }]);
     setLinkInput(f => ({ ...f, url: "", password: "" }));
+  }
+
+  async function saveTmdbKey(e: React.FormEvent) {
+    e.preventDefault();
+    setTmdbKeyLoading(true);
+    const resp = await apiFetch("/api/admin/set-tmdb-key", { method: "POST", body: JSON.stringify({ api_key: tmdbKey }) }, token);
+    if (resp.ok) {
+      const data = await resp.json();
+      setTmdbKeyConfigured(data.configured);
+      setMsg(data.message);
+      if (data.configured) setTmdbKey("");
+    } else {
+      setMsg("保存失败");
+    }
+    setTmdbKeyLoading(false);
+  }
+
+  async function loadTmdbKeyStatus() {
+    const resp = await apiFetch("/api/admin/tmdb-key-status", {}, token);
+    if (resp.ok) {
+      const data = await resp.json();
+      setTmdbKeyConfigured(data.configured);
+    }
+  }
+
+  async function addRssSource(name: string, url: string) {
+    const sp = new URLSearchParams({ name, spider_class: "rss", base_url: url });
+    const resp = await apiFetch(`/api/admin/sources?${sp.toString()}`, { method: "POST", body: JSON.stringify({}) }, token);
+    if (resp.ok) {
+      const data = await resp.json();
+      setMsg(`✓ 已添加 ${name} (ID: ${data.id})`);
+      loadData();
+    } else {
+      setMsg(`添加 ${name} 失败`);
+    }
   }
 
   const inputStyle: React.CSSProperties = {
@@ -750,6 +794,79 @@ export default function AdminPage() {
               </div>
             ) : null}
           </form>
+        </div>
+
+        {/* ══ 系统配置：TMDb API Key ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: `1px solid ${DARK.border}` }}>
+          <div className="flex items-center gap-2 mb-4">
+            <Settings size={18} style={{ color: "#e50914" }} />
+            <h2 className="text-lg font-bold">系统配置</h2>
+          </div>
+          <div className="space-y-4">
+            {/* TMDb Key */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium">TMDb API Key</span>
+                {tmdbKeyConfigured === true && (
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80" }}>✓ 已配置</span>
+                )}
+                {tmdbKeyConfigured === false && (
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>✗ 未配置</span>
+                )}
+                {tmdbKeyConfigured === null && (
+                  <button onClick={loadTmdbKeyStatus} className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: DARK.muted }}>检查状态</button>
+                )}
+              </div>
+              <form onSubmit={saveTmdbKey} className="flex gap-2">
+                <input
+                  value={tmdbKey}
+                  onChange={e => setTmdbKey(e.target.value)}
+                  placeholder="粘贴 TMDb API Key（v3 Auth）..."
+                  className="flex-1 px-3 py-2 rounded outline-none text-sm"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}
+                />
+                <button
+                  type="submit"
+                  disabled={tmdbKeyLoading || !tmdbKey.trim()}
+                  className="px-4 py-2 rounded text-sm font-medium transition-all disabled:opacity-40"
+                  style={{ background: "#e50914", color: "#fff" }}
+                >
+                  {tmdbKeyLoading ? "保存中..." : "保存"}
+                </button>
+              </form>
+              <p className="text-xs mt-1.5" style={{ color: DARK.muted }}>
+                Key 存储于服务器 .env，重建容器后需重新设置。获取地址：developer.themoviedb.org
+              </p>
+            </div>
+
+            {/* RSS 预置源 */}
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-medium">快速添加 RSS 数据源</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => addRssSource("Nyaa 动漫", "https://nyaa.si/?page=rss&c=1_2&f=0")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-all"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#f0f0f5" }}
+                >
+                  <Plus size={13} />
+                  Nyaa 动漫磁力
+                </button>
+                <button
+                  onClick={() => addRssSource("YTS 电影", "https://yts.mx/rss/0/0/0/0")}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-all"
+                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.12)", color: "#f0f0f5" }}
+                >
+                  <Plus size={13} />
+                  YTS 电影磁力
+                </button>
+              </div>
+              <p className="text-xs mt-1.5" style={{ color: DARK.muted }}>
+                添加后在下方数据源列表中手动触发爬取
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* ══ TMDb 批量导入 ══ */}

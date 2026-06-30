@@ -310,6 +310,39 @@ async def change_password(
         return {"message": "密码已修改（本次重启有效）", "warning": f".env 写入失败，重启后将恢复旧密码：{e}"}
 
 
+@router.post("/set-tmdb-key")
+async def set_tmdb_key(payload: dict, _=Depends(verify_admin)):
+    """设置 TMDb API Key，写入 .env 并更新内存"""
+    key = payload.get("api_key", "").strip()
+    settings.TMDB_API_KEY = key or None
+    env_path = ".env"
+    try:
+        import os
+        lines = []
+        found = False
+        if os.path.exists(env_path):
+            with open(env_path, "r") as f:
+                for line in f:
+                    if line.startswith("TMDB_API_KEY="):
+                        lines.append(f"TMDB_API_KEY={key}\n")
+                        found = True
+                    else:
+                        lines.append(line)
+        if not found:
+            lines.append(f"TMDB_API_KEY={key}\n")
+        with open(env_path, "w") as f:
+            f.writelines(lines)
+        return {"message": "TMDb API Key 已更新", "configured": bool(key)}
+    except Exception as e:
+        return {"message": "Key 已更新（本次重启有效）", "configured": bool(key), "warning": str(e)}
+
+
+@router.get("/tmdb-key-status")
+async def get_tmdb_key_status(_=Depends(verify_admin)):
+    """检查 TMDb API Key 是否已配置"""
+    return {"configured": bool(settings.TMDB_API_KEY)}
+
+
 @router.post("/batch-import", response_model=BatchImportResult)
 async def batch_import(
     items: List[BatchResourceIn],

@@ -81,8 +81,11 @@ export default function SearchContent() {
 
   const totalPages = result ? Math.ceil(result.total / 24) : 0;
   const activeYear = searchParams.get("year");
-  const hasFilters = !!(category || activeYear || sort !== "popular");
+  const activeGenre = searchParams.get("genre") || "";
+  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre);
   const [jumpInput, setJumpInput] = useState("");
+
+  const GENRE_OPTIONS = ["动作", "爱情", "喜剧", "科幻", "恐怖", "悬疑", "动画", "奇幻", "历史", "犯罪", "剧情"];
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -175,6 +178,21 @@ export default function SearchContent() {
               清除筛选
             </button>
           )}
+        </div>
+
+        {/* 类型筛选 */}
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <span className="text-xs self-center" style={{ color: "var(--text-muted)" }}>类型:</span>
+          {GENRE_OPTIONS.map((g) => (
+            <button
+              key={g}
+              onClick={() => updateSearch({ genre: activeGenre === g ? "" : g })}
+              className="px-3 py-1 rounded text-xs transition-all"
+              style={activeGenre === g ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
+            >
+              {g}
+            </button>
+          ))}
         </div>
 
         {/* 结果网格 */}

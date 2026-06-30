@@ -103,10 +103,14 @@ export default function ResourceCard({ resource }: Props) {
               {resource.year || ""}
             </span>
             <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
-              {resource.link_count > 0 && (
+              {resource.link_count > 0 ? (
                 <span className="flex items-center gap-0.5" style={{ color: "#34d399" }}>
                   <Link2 size={10} />
                   {resource.link_count}
+                </span>
+              ) : (
+                <span style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", fontSize: "9px", padding: "1px 4px", borderRadius: "3px" }}>
+                  暂无链接
                 </span>
               )}
               {resource.view_count > 0 && (

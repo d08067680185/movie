@@ -2,13 +2,21 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, FormEvent } from "react";
-import { Search, X, Sun, Moon } from "lucide-react";
+import { Search, X, Sun, Moon, Menu } from "lucide-react";
+
+const MOBILE_CATEGORIES = [
+  { label: "🎬 电影", val: "movie" },
+  { label: "📺 电视剧", val: "tv" },
+  { label: "⛩️ 动漫", val: "anime" },
+  { label: "📦 经典资源", val: "variety" },
+];
 
 export default function Navbar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -60,6 +68,15 @@ export default function Navbar() {
       className="sticky top-0 z-50"
     >
       <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-6">
+        {/* 移动端汉堡按钮 */}
+        <button
+          className="sm:hidden p-1.5 rounded-lg transition-colors shrink-0"
+          style={{ color: "var(--text-secondary)" }}
+          onClick={() => setMobileOpen(o => !o)}
+          aria-label="菜单"
+        >
+          {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
         <Link
           href="/"
           className="text-xl font-bold shrink-0 gradient-text"
@@ -129,6 +146,26 @@ export default function Navbar() {
           </button>
         </div>
       </div>
+
+      {/* 移动端下拉菜单 */}
+      {mobileOpen && (
+        <div
+          className="sm:hidden absolute left-0 right-0 z-40 border-t"
+          style={{ background: "var(--nav-bg)", borderColor: "var(--border)" }}
+        >
+          {MOBILE_CATEGORIES.map(({ label, val }) => (
+            <Link
+              key={val}
+              href={`/search?category=${val}`}
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors"
+              style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+      )}
     </nav>
   );
 }
