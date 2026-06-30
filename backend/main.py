@@ -60,6 +60,11 @@ app.include_router(admin_router)
 app.include_router(tmdb_router)
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.get("/")
 async def root():
     return {"message": "影视资源搜索 API", "docs": "/docs"}

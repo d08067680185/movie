@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: ./backend
+    container_name: movie-backend
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/movie_search.db
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - CORS_ORIGINS=${CORS_ORIGINS:-https://movie.mxzshs.com}
+      - SPIDER_INTERVAL_HOURS=${SPIDER_INTERVAL_HOURS:-6}
+      - TZ=Asia/Shanghai
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ""
+        BACKEND_URL: "http://backend:8000"
+    container_name: movie-frontend
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+    ports:
+      - "8092:3000"
+    depends_on:
+      - backend

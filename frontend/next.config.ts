@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
+
 const nextConfig: NextConfig = {
+  output: "standalone",
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "img*.doubanio.com" },
@@ -10,6 +13,13 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "lain.bgm.tv" },
     ],
     unoptimized: true,
+  },
+  async rewrites() {
+    return [
+      { source: "/api/:path*", destination: `${BACKEND_URL}/api/:path*` },
+      { source: "/docs", destination: `${BACKEND_URL}/docs` },
+      { source: "/openapi.json", destination: `${BACKEND_URL}/openapi.json` },
+    ];
   },
 };
 
