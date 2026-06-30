@@ -291,7 +291,7 @@ async def batch_import(
                 res = existing
                 updated += 1
             else:
-                _CAT_NORM = {"movie": "电影", "tv": "电视剧", "anime": "动漫", "variety": "综艺"}
+                _CAT_NORM = {"movie": "电影", "tv": "电视剧", "anime": "动漫", "variety": "资源"}
                 cat = _CAT_NORM.get(item.category, item.category)
                 res = Resource(
                     title=item.title,

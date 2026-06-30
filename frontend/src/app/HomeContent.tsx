@@ -11,7 +11,7 @@ const CATEGORY_META = [
   { label: "电影", value: "movie", icon: "🎬", color: "#60a5fa", glow: "rgba(96,165,250,0.2)" },
   { label: "电视剧", value: "tv", icon: "📺", color: "#a78bfa", glow: "rgba(167,139,250,0.2)" },
   { label: "动漫", value: "anime", icon: "⛩️", color: "#f472b6", glow: "rgba(244,114,182,0.2)" },
-  { label: "综艺", value: "variety", icon: "🎪", color: "#fb923c", glow: "rgba(251,146,60,0.2)" },
+  { label: "资源", value: "variety", icon: "📦", color: "#fb923c", glow: "rgba(251,146,60,0.2)" },
 ];
 
 export default function HomeContent() {

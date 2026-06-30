@@ -12,7 +12,7 @@ const CATEGORIES = [
   { label: "电影", value: "movie" },
   { label: "电视剧", value: "tv" },
   { label: "动漫", value: "anime" },
-  { label: "综艺", value: "variety" },
+  { label: "资源", value: "variety" },
 ];
 
 const SORT_OPTIONS = [

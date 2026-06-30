@@ -15,7 +15,7 @@ CATEGORY_MAP = {
     "movie": "电影",
     "tv": "电视剧",
     "anime": "动漫",
-    "variety": "综艺",
+    "variety": "资源",
 }
 
 _ORDER_MAP = {

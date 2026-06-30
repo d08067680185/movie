@@ -9,7 +9,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-_CAT_NORM = {"movie": "电影", "tv": "电视剧", "anime": "动漫", "variety": "综艺"}
+_CAT_NORM = {"movie": "电影", "tv": "电视剧", "anime": "动漫", "variety": "资源"}
 
 
 async def run_spider(source_id: int):
