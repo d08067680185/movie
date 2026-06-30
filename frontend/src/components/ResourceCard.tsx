@@ -12,7 +12,7 @@ const BADGE_CLASS: Record<string, string> = {
   动漫: "badge-anime",
   电影: "badge-movie",
   电视剧: "badge-tv",
-  综艺: "badge-variety", 资源: "badge-variety",
+  综艺: "badge-variety", 资源: "badge-variety", 经典资源: "badge-variety",
 };
 
 export default function ResourceCard({ resource }: Props) {

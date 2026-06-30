@@ -523,7 +523,7 @@ export default function AdminPage() {
                   <option value="电影">电影</option>
                   <option value="电视剧">电视剧</option>
                   <option value="动漫">动漫</option>
-                  <option value="资源">资源</option>
+                  <option value="经典资源">经典资源</option>
                 </select>
               </div>
               <div>

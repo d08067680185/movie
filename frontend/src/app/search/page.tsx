@@ -6,7 +6,7 @@ const CAT_LABELS: Record<string, string> = {
   movie: "电影",
   tv: "电视剧",
   anime: "动漫",
-  variety: "资源",
+  variety: "经典资源",
 };
 
 export async function generateMetadata({

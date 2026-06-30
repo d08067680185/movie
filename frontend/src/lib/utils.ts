@@ -5,8 +5,8 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const CATEGORY_LABELS: Record<string, string> = {
-  movie: "电影", tv: "电视剧", anime: "动漫", variety: "资源",
-  电影: "电影", 电视剧: "电视剧", 动漫: "动漫", 综艺: "资源", 资源: "资源",
+  movie: "电影", tv: "电视剧", anime: "动漫", variety: "经典资源",
+  电影: "电影", 电视剧: "电视剧", 动漫: "动漫", 综艺: "经典资源", 资源: "经典资源", 经典资源: "经典资源",
 };
 
 export const LINK_TYPE_LABELS: Record<string, { label: string; bg: string; color: string; border: string; icon: string }> = {
