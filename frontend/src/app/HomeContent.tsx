@@ -52,8 +52,8 @@ export default function HomeContent() {
       <div
         className="relative overflow-hidden"
         style={{
-          background: "linear-gradient(180deg, #08080e 0%, #0d0d12 100%)",
-          borderBottom: "1px solid rgba(255,255,255,0.07)",
+          background: "linear-gradient(180deg, var(--hero-start) 0%, var(--hero-end) 100%)",
+          borderBottom: "1px solid var(--border)",
         }}
       >
         {/* 背景光晕 */}
@@ -66,12 +66,12 @@ export default function HomeContent() {
           <div style={{
             position: "absolute", bottom: "0", left: "15%",
             width: "300px", height: "200px",
-            background: "radial-gradient(ellipse, rgba(96,165,250,0.06) 0%, transparent 70%)",
+            background: "radial-gradient(ellipse, rgba(96,165,250,0.08) 0%, transparent 70%)",
           }} />
           <div style={{
             position: "absolute", bottom: "0", right: "15%",
             width: "300px", height: "200px",
-            background: "radial-gradient(ellipse, rgba(244,114,182,0.06) 0%, transparent 70%)",
+            background: "radial-gradient(ellipse, rgba(244,114,182,0.08) 0%, transparent 70%)",
           }} />
         </div>
 
@@ -82,7 +82,7 @@ export default function HomeContent() {
               影视资源搜索
             </h1>
           </div>
-          <p className="mb-10 text-base" style={{ color: "#7878a0" }}>
+          <p className="mb-10 text-base" style={{ color: "var(--text-secondary)" }}>
             聚合多源影视资源，一键搜索电影、电视剧、动漫
           </p>
 
@@ -91,26 +91,26 @@ export default function HomeContent() {
             <div
               className="flex items-center gap-3 px-5 py-4 rounded-2xl search-glow"
               style={{
-                background: "rgba(255,255,255,0.07)",
-                border: "1px solid rgba(255,255,255,0.14)",
+                background: "var(--bg-input)",
+                border: "1px solid var(--border-input)",
               }}
             >
-              <Search size={20} style={{ color: "#7878a0", flexShrink: 0 }} />
+              <Search size={20} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
               <input
                 type="text"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="输入电影、电视剧、动漫名称..."
                 className="flex-1 bg-transparent outline-none text-lg"
-                style={{ color: "#f2f2f8" }}
+                style={{ color: "var(--text-primary)" }}
                 autoFocus
               />
               {q && (
                 <button
                   type="button"
                   onClick={() => setQ("")}
-                  className="shrink-0 rounded-full p-1 transition-all hover:bg-white/10"
-                  style={{ color: "#9898b0" }}
+                  className="shrink-0 rounded-full p-1 transition-all"
+                  style={{ color: "var(--text-secondary)" }}
                   aria-label="清除"
                 >
                   <X size={16} />
@@ -133,7 +133,7 @@ export default function HomeContent() {
           {/* 热门搜索 */}
           {hotKeywords.length > 0 && (
             <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-              <span className="text-sm flex items-center gap-1" style={{ color: "#555570" }}>
+              <span className="text-sm flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
                 <TrendingUp size={14} /> 热搜:
               </span>
               {hotKeywords.slice(0, 8).map((kw) => (
@@ -142,9 +142,9 @@ export default function HomeContent() {
                   onClick={() => router.push(`/search?q=${encodeURIComponent(kw)}`)}
                   className="px-3 py-1 rounded-full text-sm transition-all hover:text-white"
                   style={{
-                    background: "rgba(255,255,255,0.06)",
-                    border: "1px solid rgba(255,255,255,0.1)",
-                    color: "#9898b0",
+                    background: "var(--bg-input)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text-secondary)",
                   }}
                 >
                   {kw}
@@ -165,7 +165,7 @@ export default function HomeContent() {
                   <div className="text-2xl font-black" style={{ color: item.color }}>
                     {item.value}
                   </div>
-                  <div className="text-xs mt-1" style={{ color: "#555570" }}>
+                  <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
                     {item.label}
                   </div>
                 </div>
@@ -194,14 +194,14 @@ export default function HomeContent() {
                 className="cat-card flex items-center gap-3 p-4 rounded-xl text-left"
                 style={{
                   background: "var(--bg-card)",
-                  border: `1px solid rgba(255,255,255,0.1)`,
+                  border: `1px solid var(--border)`,
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLElement).style.borderColor = cat.color;
                   (e.currentTarget as HTMLElement).style.boxShadow = `0 4px 20px ${cat.glow}`;
                 }}
                 onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.1)";
+                  (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
                   (e.currentTarget as HTMLElement).style.boxShadow = "";
                 }}
               >
@@ -210,7 +210,7 @@ export default function HomeContent() {
                   <div className="font-semibold" style={{ color: cat.color }}>
                     {cat.label}
                   </div>
-                  <div className="text-xs mt-0.5" style={{ color: "#555570" }}>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                     {stats?.categories[cat.label]?.toLocaleString() ?? 0} 部
                   </div>
                 </div>
@@ -236,7 +236,7 @@ export default function HomeContent() {
             ))}
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center py-16" style={{ color: "#555570" }}>
+          <div className="flex flex-col items-center py-16" style={{ color: "var(--text-muted)" }}>
             <p>{error}</p>
             <button
               onClick={() => window.location.reload()}
@@ -265,7 +265,7 @@ export default function HomeContent() {
               <button
                 onClick={() => router.push("/search?sort=latest")}
                 className="text-sm transition-colors hover:text-white"
-                style={{ color: "#555570" }}
+                style={{ color: "var(--text-muted)" }}
               >
                 查看全部 →
               </button>

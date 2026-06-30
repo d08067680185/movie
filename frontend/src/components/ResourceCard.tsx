@@ -40,9 +40,7 @@ export default function ResourceCard({ resource }: Props) {
           ) : (
             <div
               className="w-full h-full flex items-center justify-center text-4xl"
-              style={{
-                background: "linear-gradient(135deg, #16161e 0%, #1e1e2c 100%)",
-              }}
+              style={{ background: "var(--no-poster-bg)" }}
             >
               🎬
             </div>
@@ -96,10 +94,10 @@ export default function ResourceCard({ resource }: Props) {
           )}
 
           <div className="flex items-center justify-between mt-2">
-            <span className="text-xs font-medium" style={{ color: "#6b7280" }}>
+            <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
               {resource.year || ""}
             </span>
-            <div className="flex items-center gap-2 text-xs" style={{ color: "#6b7280" }}>
+            <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
               {resource.link_count > 0 && (
                 <span className="flex items-center gap-0.5" style={{ color: "#34d399" }}>
                   <Link2 size={10} />

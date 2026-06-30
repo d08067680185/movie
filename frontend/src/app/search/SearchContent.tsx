@@ -25,6 +25,12 @@ const SORT_OPTIONS = [
 const currentYear = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => currentYear - i);
 
+const INACTIVE_BTN = {
+  background: "var(--bg-input)",
+  border: "1px solid var(--border-input)",
+  color: "var(--text-secondary)",
+} as const;
+
 export default function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -90,7 +96,7 @@ export default function SearchContent() {
               <h1 className="text-xl font-bold">
                 搜索 <span style={{ color: "#e50914" }}>{`"${q}"`}</span>
                 {result && (
-                  <span className="text-sm font-normal ml-2" style={{ color: "#a0a0b0" }}>
+                  <span className="text-sm font-normal ml-2" style={{ color: "var(--text-secondary)" }}>
                     共 {result.total} 个结果
                   </span>
                 )}
@@ -113,11 +119,7 @@ export default function SearchContent() {
               style={
                 category === cat.value
                   ? { background: "#e50914", color: "#fff" }
-                  : {
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#a0a0b0",
-                    }
+                  : INACTIVE_BTN
               }
             >
               {cat.label}
@@ -128,7 +130,7 @@ export default function SearchContent() {
         {/* 年份 + 排序 + 清除筛选 */}
         <div className="flex flex-wrap items-center gap-3 mb-6">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs self-center" style={{ color: "#606070" }}>年份:</span>
+            <span className="text-xs self-center" style={{ color: "var(--text-muted)" }}>年份:</span>
             {YEAR_OPTIONS.map((y) => (
               <button
                 key={y}
@@ -137,7 +139,7 @@ export default function SearchContent() {
                 style={
                   activeYear === String(y)
                     ? { background: "#e50914", color: "#fff" }
-                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }
+                    : INACTIVE_BTN
                 }
               >
                 {y}
@@ -146,7 +148,7 @@ export default function SearchContent() {
           </div>
 
           <div className="flex items-center gap-2 ml-auto">
-            <span className="text-xs" style={{ color: "#606070" }}>排序:</span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>排序:</span>
             {SORT_OPTIONS.map((s) => (
               <button
                 key={s.value}
@@ -155,7 +157,7 @@ export default function SearchContent() {
                 style={
                   sort === s.value
                     ? { background: "#e50914", color: "#fff" }
-                    : { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }
+                    : INACTIVE_BTN
                 }
               >
                 {s.label}
@@ -201,7 +203,7 @@ export default function SearchContent() {
                   onClick={() => goPage(page - 1)}
                   disabled={page <= 1}
                   className="p-2 rounded-lg disabled:opacity-30 transition-all"
-                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={INACTIVE_BTN}
                 >
                   <ChevronLeft size={16} />
                 </button>
@@ -221,7 +223,7 @@ export default function SearchContent() {
                   }
                   return pages.map((p, i) =>
                     p === "..." ? (
-                      <span key={`ellipsis-${i}`} className="w-9 h-9 flex items-center justify-center text-sm" style={{ color: "#606070" }}>…</span>
+                      <span key={`ellipsis-${i}`} className="w-9 h-9 flex items-center justify-center text-sm" style={{ color: "var(--text-muted)" }}>…</span>
                     ) : (
                       <button
                         key={p}
@@ -230,11 +232,7 @@ export default function SearchContent() {
                         style={
                           p === page
                             ? { background: "#e50914", color: "#fff" }
-                            : {
-                                background: "rgba(255,255,255,0.06)",
-                                border: "1px solid rgba(255,255,255,0.08)",
-                                color: "#a0a0b0",
-                              }
+                            : INACTIVE_BTN
                         }
                       >
                         {p}
@@ -247,14 +245,14 @@ export default function SearchContent() {
                   onClick={() => goPage(page + 1)}
                   disabled={page >= totalPages}
                   className="p-2 rounded-lg disabled:opacity-30 transition-all"
-                  style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" }}
+                  style={INACTIVE_BTN}
                 >
                   <ChevronRight size={16} />
                 </button>
 
                 {/* 页码跳转 */}
                 <div className="flex items-center gap-1.5 ml-2">
-                  <span className="text-xs" style={{ color: "#606070" }}>跳至</span>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>跳至</span>
                   <input
                     type="number"
                     min={1}
@@ -270,13 +268,12 @@ export default function SearchContent() {
                     placeholder={String(page)}
                     className="w-12 text-center text-sm rounded-lg outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     style={{
-                      background: "rgba(255,255,255,0.06)",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#f0f0f5",
+                      ...INACTIVE_BTN,
+                      color: "var(--text-primary)",
                       height: "36px",
                     }}
                   />
-                  <span className="text-xs" style={{ color: "#606070" }}>/ {totalPages} 页</span>
+                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>/ {totalPages} 页</span>
                   <button
                     onClick={() => {
                       const p = parseInt(jumpInput);
@@ -298,7 +295,7 @@ export default function SearchContent() {
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24 text-center" style={{ color: "#606070" }}>
+          <div className="flex flex-col items-center justify-center py-24 text-center" style={{ color: "var(--text-muted)" }}>
             <Search size={48} className="mb-4 opacity-30" />
             <p className="text-lg">没有找到相关资源</p>
             {q && (
@@ -314,16 +311,16 @@ export default function SearchContent() {
                         sp.delete("page");
                         router.push(`/search?${sp.toString()}`);
                       }}
-                      className="px-3 py-1 rounded-full text-xs transition-all hover:text-white"
-                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }}
+                      className="px-3 py-1 rounded-full text-xs transition-all"
+                      style={INACTIVE_BTN}
                     >
                       {s}
                     </button>
                   ))}
                   <button
                     onClick={() => router.push("/search?sort=latest")}
-                    className="px-3 py-1 rounded-full text-xs transition-all hover:text-white"
-                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }}
+                    className="px-3 py-1 rounded-full text-xs transition-all"
+                    style={INACTIVE_BTN}
                   >
                     浏览全部资源
                   </button>

@@ -4,13 +4,44 @@
   --bg-primary: #0d0d12;
   --bg-secondary: #13131a;
   --bg-card: #1a1a24;
-  --bg-card-hover: #21212e;
+  --bg-card-hover: #22222f;
+  --bg-input: rgba(255, 255, 255, 0.07);
+  --nav-bg: rgba(13, 13, 18, 0.96);
+  --hero-start: #08080e;
+  --hero-end: #0d0d12;
   --accent: #e50914;
   --accent-light: #ff3040;
   --text-primary: #f2f2f8;
   --text-secondary: #9898b0;
+  --text-muted: #606070;
   --border: rgba(255, 255, 255, 0.1);
+  --border-input: rgba(255, 255, 255, 0.12);
   --border-bright: rgba(255, 255, 255, 0.18);
+  --no-poster-bg: linear-gradient(135deg, #16161e 0%, #1e1e2c 100%);
+  --card-shadow: rgba(0, 0, 0, 0.6);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.18);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
+}
+
+[data-theme="light"] {
+  --bg-primary: #f3f3f8;
+  --bg-secondary: #e9e9f0;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f5f5fa;
+  --bg-input: rgba(0, 0, 0, 0.05);
+  --nav-bg: rgba(245, 245, 252, 0.96);
+  --hero-start: #ecedf8;
+  --hero-end: #f3f3f8;
+  --text-primary: #111118;
+  --text-secondary: #505068;
+  --text-muted: #888898;
+  --border: rgba(0, 0, 0, 0.1);
+  --border-input: rgba(0, 0, 0, 0.12);
+  --border-bright: rgba(0, 0, 0, 0.2);
+  --no-poster-bg: linear-gradient(135deg, #dcdce8 0%, #d0d0e0 100%);
+  --card-shadow: rgba(0, 0, 0, 0.12);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -30,8 +61,8 @@ body {
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-secondary); }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumb-hover); }
 
 /* 搜索框聚焦发光 */
 .search-glow:focus-within {
@@ -45,7 +76,7 @@ body {
 }
 .resource-card:hover {
   transform: translateY(-5px);
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(229,9,20,0.25);
+  box-shadow: 0 16px 40px var(--card-shadow), 0 0 0 1px rgba(229,9,20,0.25);
 }
 .resource-card:hover .card-inner {
   border-color: rgba(229,9,20,0.3) !important;
@@ -65,7 +96,7 @@ body {
 }
 .cat-card:hover {
   transform: translateY(-3px) scale(1.02);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  box-shadow: 0 8px 24px var(--card-shadow);
 }
 
 @keyframes shimmer {
@@ -73,7 +104,7 @@ body {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #1a1a24 25%, #22222f 50%, #1a1a24 75%);
+  background: linear-gradient(90deg, var(--bg-card) 25%, var(--bg-card-hover) 50%, var(--bg-card) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
   border-radius: 4px;
@@ -84,3 +115,27 @@ body {
 .badge-movie  { background: rgba(96,165,250,0.18);  color: #60a5fa; border: 1px solid rgba(96,165,250,0.35); }
 .badge-tv     { background: rgba(167,139,250,0.18); color: #a78bfa; border: 1px solid rgba(167,139,250,0.35); }
 .badge-variety{ background: rgba(251,146,60,0.18);  color: #fb923c; border: 1px solid rgba(251,146,60,0.35); }
+
+/* 日间模式徽章加深以增强对比 */
+[data-theme="light"] .badge-anime  { background: rgba(244,114,182,0.15); color: #db2777; border-color: rgba(244,114,182,0.4); }
+[data-theme="light"] .badge-movie  { background: rgba(96,165,250,0.15);  color: #2563eb; border-color: rgba(96,165,250,0.4); }
+[data-theme="light"] .badge-tv     { background: rgba(167,139,250,0.15); color: #7c3aed; border-color: rgba(167,139,250,0.4); }
+[data-theme="light"] .badge-variety{ background: rgba(251,146,60,0.15);  color: #ea580c; border-color: rgba(251,146,60,0.4); }
+
+/* 主题切换按钮 */
+.theme-toggle {
+  padding: 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.theme-toggle:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}

@@ -75,7 +75,7 @@ export default function DetailContent({ id }: Props) {
     return (
       <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
         <Navbar />
-        <div className="flex flex-col items-center justify-center py-32 text-center" style={{ color: "#606070" }}>
+        <div className="flex flex-col items-center justify-center py-32 text-center" style={{ color: "var(--text-muted)" }}>
           <p className="text-2xl mb-4">🎬</p>
           <p className="text-lg">资源不存在</p>
           <Link href="/" className="mt-4 text-sm" style={{ color: "#e50914" }}>
@@ -112,8 +112,8 @@ export default function DetailContent({ id }: Props) {
         <div className="flex items-center justify-between mb-6">
           <button
             onClick={() => { if (window.history.length > 1) router.back(); else router.push("/"); }}
-            className="flex items-center gap-1.5 text-sm hover:text-white transition-colors"
-            style={{ color: "#a0a0b0" }}
+            className="flex items-center gap-1.5 text-sm transition-colors hover:text-white"
+            style={{ color: "var(--text-secondary)" }}
           >
             <ArrowLeft size={16} />
             返回
@@ -122,9 +122,9 @@ export default function DetailContent({ id }: Props) {
             onClick={handleShare}
             className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
             style={{
-              background: shareCopied ? "rgba(34,197,94,0.15)" : "rgba(255,255,255,0.06)",
-              border: `1px solid ${shareCopied ? "rgba(34,197,94,0.3)" : "rgba(255,255,255,0.08)"}`,
-              color: shareCopied ? "#22c55e" : "#a0a0b0",
+              background: shareCopied ? "rgba(34,197,94,0.15)" : "var(--bg-input)",
+              border: `1px solid ${shareCopied ? "rgba(34,197,94,0.3)" : "var(--border-input)"}`,
+              color: shareCopied ? "#22c55e" : "var(--text-secondary)",
             }}
           >
             <Share2 size={13} />
@@ -137,7 +137,7 @@ export default function DetailContent({ id }: Props) {
           {/* 海报 */}
           <div
             className="w-48 aspect-[2/3] rounded-xl overflow-hidden shrink-0 mx-auto sm:mx-0"
-            style={{ border: "1px solid rgba(255,255,255,0.1)" }}
+            style={{ border: "1px solid var(--border)" }}
           >
             {resource.poster_url ? (
               <Image
@@ -151,7 +151,7 @@ export default function DetailContent({ id }: Props) {
             ) : (
               <div
                 className="w-full h-full flex items-center justify-center text-5xl"
-                style={{ background: "linear-gradient(135deg, #1c1c26 0%, #22222f 100%)" }}
+                style={{ background: "var(--no-poster-bg)" }}
               >
                 🎬
               </div>
@@ -170,7 +170,7 @@ export default function DetailContent({ id }: Props) {
                 </span>
               )}
               {resource.year && (
-                <span className="text-sm" style={{ color: "#a0a0b0" }}>
+                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
                   {resource.year}
                 </span>
               )}
@@ -180,12 +180,12 @@ export default function DetailContent({ id }: Props) {
               {resource.title}
             </h1>
             {resource.title_en && (
-              <p className="text-base mb-2" style={{ color: "#a0a0b0" }}>
+              <p className="text-base mb-2" style={{ color: "var(--text-secondary)" }}>
                 {resource.title_en}
               </p>
             )}
             {resource.original_title && resource.original_title !== resource.title && (
-              <p className="text-sm mb-4" style={{ color: "#606070" }}>
+              <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
                 原名: {resource.original_title}
               </p>
             )}
@@ -198,7 +198,7 @@ export default function DetailContent({ id }: Props) {
                   {resource.rating.toFixed(1)}
                 </span>
                 {resource.rating_count && (
-                  <span className="text-sm" style={{ color: "#606070" }}>
+                  <span className="text-sm" style={{ color: "var(--text-muted)" }}>
                     ({resource.rating_count.toLocaleString()} 人评价)
                   </span>
                 )}
@@ -208,26 +208,26 @@ export default function DetailContent({ id }: Props) {
             {/* 元数据 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5 text-sm">
               {resource.genre && (
-                <div className="flex items-center gap-2" style={{ color: "#a0a0b0" }}>
-                  <span style={{ color: "#606070" }}>类型:</span>
+                <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                  <span style={{ color: "var(--text-muted)" }}>类型:</span>
                   {resource.genre}
                 </div>
               )}
               {resource.country && (
-                <div className="flex items-center gap-2" style={{ color: "#a0a0b0" }}>
-                  <Globe size={14} style={{ color: "#606070" }} />
+                <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                  <Globe size={14} style={{ color: "var(--text-muted)" }} />
                   {resource.country}
                 </div>
               )}
               {resource.duration && (
-                <div className="flex items-center gap-2" style={{ color: "#a0a0b0" }}>
-                  <Clock size={14} style={{ color: "#606070" }} />
+                <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                  <Clock size={14} style={{ color: "var(--text-muted)" }} />
                   {resource.duration} 分钟
                 </div>
               )}
               {resource.language && (
-                <div className="flex items-center gap-2" style={{ color: "#a0a0b0" }}>
-                  <span style={{ color: "#606070" }}>语言:</span>
+                <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
+                  <span style={{ color: "var(--text-muted)" }}>语言:</span>
                   {resource.language}
                 </div>
               )}
@@ -236,21 +236,21 @@ export default function DetailContent({ id }: Props) {
             {/* 导演/演员 */}
             {resource.directors && resource.directors.length > 0 && (
               <div className="mb-2 text-sm">
-                <span style={{ color: "#606070" }}>导演: </span>
-                <span style={{ color: "#a0a0b0" }}>{resource.directors.join(" / ")}</span>
+                <span style={{ color: "var(--text-muted)" }}>导演: </span>
+                <span style={{ color: "var(--text-secondary)" }}>{resource.directors.join(" / ")}</span>
               </div>
             )}
             {resource.actors && resource.actors.length > 0 && (
               <div className="mb-4 text-sm">
-                <span style={{ color: "#606070" }}>主演: </span>
-                <span style={{ color: "#a0a0b0" }}>{resource.actors.slice(0, 6).join(" / ")}</span>
+                <span style={{ color: "var(--text-muted)" }}>主演: </span>
+                <span style={{ color: "var(--text-secondary)" }}>{resource.actors.slice(0, 6).join(" / ")}</span>
               </div>
             )}
 
             {/* 简介 */}
             {resource.synopsis && (
               <div>
-                <p className="text-sm leading-relaxed" style={{ color: "#a0a0b0" }}>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text-secondary)" }}>
                   {synopsisExpanded || resource.synopsis.length <= SYNOPSIS_LIMIT
                     ? resource.synopsis
                     : resource.synopsis.slice(0, SYNOPSIS_LIMIT) + "…"}
@@ -285,7 +285,7 @@ export default function DetailContent({ id }: Props) {
           {resource.links.length === 0 ? (
             <div
               className="flex flex-col items-center justify-center py-16 rounded-xl text-center"
-              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "#606070" }}
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", color: "var(--text-muted)" }}
             >
               <Download size={40} className="mb-4 opacity-30" />
               <p>暂无下载资源</p>
@@ -294,9 +294,9 @@ export default function DetailContent({ id }: Props) {
             <div className="space-y-6">
               {orderedGroups.map((groupKey) => (
                 <div key={groupKey}>
-                  <h3 className="text-sm font-semibold mb-3" style={{ color: "#a0a0b0" }}>
+                  <h3 className="text-sm font-semibold mb-3" style={{ color: "var(--text-secondary)" }}>
                     {LINK_TYPE_GROUPS[groupKey]}
-                    <span className="ml-2 text-xs" style={{ color: "#606070" }}>
+                    <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
                       ({groupedLinks[groupKey].length})
                     </span>
                   </h3>
@@ -310,6 +310,7 @@ export default function DetailContent({ id }: Props) {
             </div>
           )}
         </div>
+
         {/* 相关推荐 */}
         {related.length > 0 && (
           <div className="mt-12">
