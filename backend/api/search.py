@@ -50,6 +50,7 @@ async def search(
                 Resource.title.ilike(kw),
                 Resource.title_en.ilike(kw),
                 Resource.original_title.ilike(kw),
+                Resource.synopsis.ilike(kw),
             )
         )
         ins = sqlite_insert(SearchLog).values(keyword=q.strip(), count=1)
@@ -235,6 +236,37 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     return result
 
 
+@router.get("/latest", response_model=list)
+async def get_latest(db: AsyncSession = Depends(get_db)):
+    """最新入库资源（按 id 倒序取 12 条有封面的）"""
+    stmt = (
+        select(Resource)
+        .where(Resource.poster_url != None)
+        .order_by(Resource.id.desc())
+        .limit(12)
+    )
+    resources = (await db.execute(stmt)).scalars().all()
+    resource_ids = [r.id for r in resources]
+    link_counts: dict = {}
+    if resource_ids:
+        lc_stmt = (
+            select(ResourceLink.resource_id, func.count(ResourceLink.id))
+            .where(ResourceLink.resource_id.in_(resource_ids))
+            .group_by(ResourceLink.resource_id)
+        )
+        for rid, cnt in (await db.execute(lc_stmt)).all():
+            link_counts[rid] = cnt
+    return [
+        ResourceCardOut(
+            id=r.id, title=r.title, title_en=r.title_en,
+            year=r.year, category=r.category, genre=r.genre,
+            rating=r.rating, poster_url=r.poster_url,
+            link_count=link_counts.get(r.id, 0), view_count=r.view_count,
+        )
+        for r in resources
+    ]
+
+
 @router.get("/hot-searches")
 async def hot_searches(limit: int = 8, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -250,17 +282,52 @@ async def get_related(resource_id: int, db: AsyncSession = Depends(get_db)):
     if not resource:
         return []
 
-    stmt = (
-        select(Resource)
-        .where(Resource.id != resource_id)
-        .where(Resource.category == resource.category)
-        .order_by(Resource.rating.desc().nulls_last())
-        .limit(6)
-    )
-    related = (await db.execute(stmt)).scalars().all()
+    import re as _re
+
+    base = _re.sub(r'[\s\(（\[【第\d季部集合].*$', '', resource.title).strip()
+    short = base[:4] if len(base) >= 4 else base
+
+    related: list = []
+
+    # 1. 同标题前缀（续集/合集）
+    if short:
+        kw = f"%{short}%"
+        stmt1 = (
+            select(Resource)
+            .where(Resource.id != resource_id)
+            .where(Resource.title.ilike(kw))
+            .order_by(Resource.rating.desc().nulls_last())
+            .limit(6)
+        )
+        related = list((await db.execute(stmt1)).scalars().all())
+
+    # 2. 同 genre（补足到 6 个）
+    if len(related) < 6 and resource.genre:
+        seen = {r.id for r in related} | {resource_id}
+        genre_word = resource.genre.split()[0] if resource.genre else ""
+        stmt2 = (
+            select(Resource)
+            .where(Resource.id.notin_(seen))
+            .where(Resource.genre.ilike(f"%{genre_word}%"))
+            .order_by(Resource.rating.desc().nulls_last())
+            .limit(6 - len(related))
+        )
+        related += list((await db.execute(stmt2)).scalars().all())
+
+    # 3. 兜底：同分类高评分
+    if len(related) < 6:
+        seen = {r.id for r in related} | {resource_id}
+        stmt3 = (
+            select(Resource)
+            .where(Resource.id.notin_(seen))
+            .where(Resource.category == resource.category)
+            .order_by(Resource.rating.desc().nulls_last())
+            .limit(6 - len(related))
+        )
+        related += list((await db.execute(stmt3)).scalars().all())
 
     resource_ids = [r.id for r in related]
-    link_counts = {}
+    link_counts: dict = {}
     if resource_ids:
         lc_stmt = (
             select(ResourceLink.resource_id, func.count(ResourceLink.id))

@@ -1,26 +1,33 @@
 "use client";
 import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Search, TrendingUp, Film, Star } from "lucide-react";
-import { getHotResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
+import { Search, TrendingUp, Film, Star, Clock } from "lucide-react";
+import { getHotResources, getLatestResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
 
-const HOT_SEARCHES = ["流浪地球", "三体", "繁花", "奥本海默", "蜘蛛侠", "鬼灭之刃", "好东西", "狂飙"];
+const CATEGORY_META: { label: string; value: string; icon: string; color: string }[] = [
+  { label: "电影", value: "movie", icon: "🎬", color: "#3b82f6" },
+  { label: "电视剧", value: "tv", icon: "📺", color: "#a855f7" },
+  { label: "动漫", value: "anime", icon: "⛩️", color: "#ec4899" },
+  { label: "综艺", value: "variety", icon: "🎪", color: "#f97316" },
+];
 
 export default function HomeContent() {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [hotResources, setHotResources] = useState<ResourceCard[]>([]);
+  const [latestResources, setLatestResources] = useState<ResourceCard[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hotKeywords, setHotKeywords] = useState<string[]>(HOT_SEARCHES);
+  const [hotKeywords, setHotKeywords] = useState<string[]>([]);
 
   useEffect(() => {
-    Promise.all([getHotResources(), getStats()])
-      .then(([hot, s]) => {
+    Promise.all([getHotResources(), getLatestResources(), getStats()])
+      .then(([hot, latest, s]) => {
         setHotResources(hot);
+        setLatestResources(latest);
         setStats(s);
       })
       .catch(() => setError("加载失败，请刷新页面重试"))
@@ -37,6 +44,11 @@ export default function HomeContent() {
     }
   }
 
+  // 只显示有内容的分类
+  const activeCategories = CATEGORY_META.filter(
+    (c) => stats && (stats.categories[c.label] ?? 0) > 0
+  );
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
       {/* Hero 区域 */}
@@ -47,7 +59,6 @@ export default function HomeContent() {
           borderBottom: "1px solid rgba(255,255,255,0.06)",
         }}
       >
-        {/* 背景装饰 */}
         <div
           className="absolute inset-0 opacity-20"
           style={{
@@ -99,25 +110,27 @@ export default function HomeContent() {
           </form>
 
           {/* 热门搜索 */}
-          <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
-            <span className="text-sm flex items-center gap-1" style={{ color: "#606070" }}>
-              <TrendingUp size={14} /> 热搜:
-            </span>
-            {hotKeywords.map((kw) => (
-              <button
-                key={kw}
-                onClick={() => router.push(`/search?q=${encodeURIComponent(kw)}`)}
-                className="px-3 py-1 rounded-full text-sm transition-all hover:text-white"
-                style={{
-                  background: "rgba(255,255,255,0.06)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#a0a0b0",
-                }}
-              >
-                {kw}
-              </button>
-            ))}
-          </div>
+          {hotKeywords.length > 0 && (
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-6">
+              <span className="text-sm flex items-center gap-1" style={{ color: "#606070" }}>
+                <TrendingUp size={14} /> 热搜:
+              </span>
+              {hotKeywords.slice(0, 8).map((kw) => (
+                <button
+                  key={kw}
+                  onClick={() => router.push(`/search?q=${encodeURIComponent(kw)}`)}
+                  className="px-3 py-1 rounded-full text-sm transition-all hover:text-white"
+                  style={{
+                    background: "rgba(255,255,255,0.06)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "#a0a0b0",
+                  }}
+                >
+                  {kw}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* 统计数字 */}
           {stats && (
@@ -141,36 +154,31 @@ export default function HomeContent() {
         </div>
       </div>
 
-      {/* 分类导航 */}
       <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-12">
-          {[
-            { label: "电影", value: "movie", icon: "🎬", color: "#3b82f6" },
-            { label: "电视剧", value: "tv", icon: "📺", color: "#a855f7" },
-            { label: "动漫", value: "anime", icon: "⛩️", color: "#ec4899" },
-            { label: "综艺", value: "variety", icon: "🎪", color: "#f97316" },
-          ].map((cat) => (
-            <button
-              key={cat.value}
-              onClick={() => router.push(`/search?category=${cat.value}`)}
-              className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-105"
-              style={{
-                background: "var(--bg-card)",
-                border: "1px solid var(--border)",
-              }}
-            >
-              <span className="text-2xl">{cat.icon}</span>
-              <div className="text-left">
-                <div className="font-semibold">{cat.label}</div>
-                {stats?.categories[cat.label] && (
+        {/* 分类导航（只显示有内容的分类） */}
+        {activeCategories.length > 0 && (
+          <div className={`grid gap-4 mb-12 ${activeCategories.length === 1 ? "grid-cols-1 max-w-xs" : activeCategories.length === 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4"}`}>
+            {activeCategories.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={() => router.push(`/search?category=${cat.value}`)}
+                className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-105"
+                style={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <span className="text-2xl">{cat.icon}</span>
+                <div className="text-left">
+                  <div className="font-semibold">{cat.label}</div>
                   <div className="text-xs" style={{ color: "#606070" }}>
-                    {stats.categories[cat.label]} 部
+                    {stats?.categories[cat.label]?.toLocaleString() ?? 0} 部
                   </div>
-                )}
-              </div>
-            </button>
-          ))}
-        </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* 热门资源 */}
         <div className="flex items-center gap-2 mb-6">
@@ -204,6 +212,30 @@ export default function HomeContent() {
             {hotResources.map((r) => (
               <ResourceCardComponent key={r.id} resource={r} />
             ))}
+          </div>
+        )}
+
+        {/* 最新入库 */}
+        {!loading && !error && latestResources.length > 0 && (
+          <div className="mt-12">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-2">
+                <Clock size={18} style={{ color: "#60a5fa" }} />
+                <h2 className="text-xl font-bold">最新入库</h2>
+              </div>
+              <button
+                onClick={() => router.push("/search?sort=latest")}
+                className="text-sm transition-colors hover:text-white"
+                style={{ color: "#606070" }}
+              >
+                查看全部 →
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {latestResources.map((r) => (
+                <ResourceCardComponent key={r.id} resource={r} />
+              ))}
+            </div>
           </div>
         )}
       </div>

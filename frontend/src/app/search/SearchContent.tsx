@@ -298,10 +298,38 @@ export default function SearchContent() {
             )}
           </>
         ) : (
-          <div className="flex flex-col items-center justify-center py-24" style={{ color: "#606070" }}>
+          <div className="flex flex-col items-center justify-center py-24 text-center" style={{ color: "#606070" }}>
             <Search size={48} className="mb-4 opacity-30" />
             <p className="text-lg">没有找到相关资源</p>
-            <p className="text-sm mt-2">试试其他关键词</p>
+            {q && (
+              <div className="mt-4 space-y-1 text-sm">
+                <p>试试：</p>
+                <div className="flex flex-wrap justify-center gap-2 mt-2">
+                  {[q.slice(0, 2), q.replace(/[^一-龥]/g, "").slice(0, 4)].filter((s) => s && s !== q).map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => {
+                        const sp = new URLSearchParams(searchParams.toString());
+                        sp.set("q", s);
+                        sp.delete("page");
+                        router.push(`/search?${sp.toString()}`);
+                      }}
+                      className="px-3 py-1 rounded-full text-xs transition-all hover:text-white"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => router.push("/search?sort=latest")}
+                    className="px-3 py-1 rounded-full text-xs transition-all hover:text-white"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)", color: "#a0a0b0" }}
+                  >
+                    浏览全部资源
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

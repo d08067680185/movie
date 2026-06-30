@@ -24,6 +24,8 @@ const LINK_TYPE_GROUPS: Record<string, string> = {
   page: "🌐 网页资源",
 };
 
+const SYNOPSIS_LIMIT = 200;
+
 export default function DetailContent({ id }: Props) {
   const router = useRouter();
   const [resource, setResource] = useState<ResourceDetail | null>(null);
@@ -31,6 +33,7 @@ export default function DetailContent({ id }: Props) {
   const [notFound, setNotFound] = useState(false);
   const [related, setRelated] = useState<ResourceCard[]>([]);
   const [shareCopied, setShareCopied] = useState(false);
+  const [synopsisExpanded, setSynopsisExpanded] = useState(false);
 
   function handleShare() {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -246,9 +249,22 @@ export default function DetailContent({ id }: Props) {
 
             {/* 简介 */}
             {resource.synopsis && (
-              <p className="text-sm leading-relaxed" style={{ color: "#a0a0b0" }}>
-                {resource.synopsis}
-              </p>
+              <div>
+                <p className="text-sm leading-relaxed" style={{ color: "#a0a0b0" }}>
+                  {synopsisExpanded || resource.synopsis.length <= SYNOPSIS_LIMIT
+                    ? resource.synopsis
+                    : resource.synopsis.slice(0, SYNOPSIS_LIMIT) + "…"}
+                </p>
+                {resource.synopsis.length > SYNOPSIS_LIMIT && (
+                  <button
+                    onClick={() => setSynopsisExpanded((v) => !v)}
+                    className="mt-1 text-xs transition-colors hover:text-white"
+                    style={{ color: "#e50914" }}
+                  >
+                    {synopsisExpanded ? "收起" : "展开全文"}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

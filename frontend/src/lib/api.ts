@@ -116,3 +116,11 @@ export async function getRelated(id: number): Promise<ResourceCard[]> {
     return [];
   }
 }
+
+export async function getLatestResources(): Promise<ResourceCard[]> {
+  try {
+    return await fetchApi("/api/latest");
+  } catch {
+    return [];
+  }
+}
