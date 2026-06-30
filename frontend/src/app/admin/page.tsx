@@ -193,9 +193,10 @@ export default function AdminPage() {
     }
   }
 
-  async function loadResources(q = resSearch, page = resPage) {
+  async function loadResources(q = resSearch, page = resPage, cat = resCategory) {
     const sp = new URLSearchParams({ page: String(page), page_size: "15" });
     if (q) sp.set("q", q);
+    if (cat) sp.set("category", cat);
     const resp = await apiFetch(`/api/admin/resources?${sp}`, {}, token);
     if (resp.ok) setResData(await resp.json());
   }
@@ -204,6 +205,12 @@ export default function AdminPage() {
     if (!confirm("确认删除此链接？")) return;
     const resp = await apiFetch(`/api/admin/links/${linkId}`, { method: "DELETE" }, token);
     setMsg(resp.ok ? "链接已删除" : "删除失败，请重试");
+    loadResources();
+  }
+
+  async function toggleLinkValidity(linkId: number, currentValid: boolean) {
+    const action = currentValid ? "invalidate" : "validate";
+    await apiFetch(`/api/admin/links/${linkId}/${action}`, { method: "PATCH" }, token);
     loadResources();
   }
 
@@ -222,7 +229,7 @@ export default function AdminPage() {
     e.preventDefault();
     if (!addLinkForm) return;
     const src = sources.find(s => s.name === "手动导入");
-    const sourceId = src?.id || 1;
+    const sourceId = src?.id ?? 0; // 0 → 后端自动查找/创建"手动导入"Source
     const resp = await apiFetch(`/api/admin/links`, {
       method: "POST",
       body: JSON.stringify({
@@ -931,19 +938,30 @@ export default function AdminPage() {
             <h2 className="text-lg font-bold">资源链接管理</h2>
             <span className="text-xs" style={{ color: "#606070" }}>可搜索影片、查看/添加/删除下载链接</span>
           </div>
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-2 mb-4 flex-wrap">
             <input value={resSearch} onChange={e => setResSearch(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter") { setResPage(1); loadResources(resSearch, 1); } }}
-              placeholder="搜索影片名称..." className="flex-1 px-3 py-2 rounded outline-none text-sm"
+              onKeyDown={e => { if (e.key === "Enter") { setResPage(1); loadResources(resSearch, 1, resCategory); } }}
+              placeholder="搜索影片名称..." className="flex-1 min-w-36 px-3 py-2 rounded outline-none text-sm"
               style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
-            <button onClick={() => { setResPage(1); loadResources(resSearch, 1); }}
+            <select value={resCategory} onChange={e => { setResCategory(e.target.value); setResPage(1); loadResources(resSearch, 1, e.target.value); }}
+              className="px-3 py-2 rounded outline-none text-sm"
+              style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+              <option value="">全部分类</option>
+              <option value="电影">电影</option>
+              <option value="电视剧">电视剧</option>
+              <option value="动漫">动漫</option>
+              <option value="经典资源">经典资源</option>
+            </select>
+            <button onClick={() => { setResPage(1); loadResources(resSearch, 1, resCategory); }}
               className="px-4 py-2 rounded text-sm font-semibold text-white"
               style={{ background: "#e50914" }}>搜索</button>
           </div>
 
           {resData && (
             <div className="space-y-2">
-              <div className="text-xs mb-2" style={{ color: "#606070" }}>共 {resData.total} 条，每页 15 条</div>
+              <div className="text-xs mb-2" style={{ color: "#606070" }}>
+                共 {resData.total} 条，第 {resPage} / {Math.ceil(resData.total / 15) || 1} 页
+              </div>
               {resData.items.map(res => (
                 <div key={res.id} className="rounded-lg overflow-hidden"
                   style={{ border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.02)" }}>
@@ -981,25 +999,48 @@ export default function AdminPage() {
 
                   {/* 链接详情 */}
                   {expandedId === res.id && (
-                    <div className="px-4 pb-3 space-y-2 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
+                    <div className="px-4 pb-3 space-y-1.5 border-t" style={{ borderColor: "rgba(255,255,255,0.06)" }}>
                       {res.links.length === 0
                         ? <p className="text-xs py-2" style={{ color: "#606070" }}>暂无下载链接</p>
-                        : res.links.map(lk => (
-                          <div key={lk.id} className="flex items-center gap-2 py-1.5">
-                            <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-                              style={{ background: lk.link_type.includes("quark") ? "rgba(249,115,22,0.15)" : "rgba(59,130,246,0.15)",
-                                       color: lk.link_type.includes("quark") ? "#fb923c" : "#60a5fa" }}>
-                              {lk.link_type.replace("pan_", "")}
-                            </span>
-                            <span className="text-xs flex-1 truncate font-mono" style={{ color: lk.is_valid ? "#c0c0d0" : "#606070" }}>
-                              {lk.url}
-                            </span>
-                            {lk.password && <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>密码:{lk.password}</span>}
-                            <button onClick={() => deleteLink(lk.id)}
-                              className="text-xs px-2 py-0.5 rounded flex-shrink-0"
-                              style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>删除</button>
-                          </div>
-                        ))
+                        : res.links.map(lk => {
+                          const TYPE_STYLE: Record<string, [string, string]> = {
+                            pan_quark:  ["rgba(249,115,22,0.15)", "#fb923c"],
+                            pan_baidu:  ["rgba(59,130,246,0.15)", "#60a5fa"],
+                            pan_aliyun: ["rgba(168,85,247,0.15)", "#c084fc"],
+                            magnet:     ["rgba(34,197,94,0.15)",  "#4ade80"],
+                            direct:     ["rgba(234,179,8,0.15)",  "#facc15"],
+                          };
+                          const [bg, color] = TYPE_STYLE[lk.link_type] ?? ["rgba(100,116,139,0.15)", "#94a3b8"];
+                          return (
+                            <div key={lk.id} className="flex items-center gap-2 py-1.5">
+                              <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0" style={{ background: bg, color }}>
+                                {lk.link_type.replace("pan_", "")}
+                              </span>
+                              {!lk.is_valid && (
+                                <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                                  style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>失效</span>
+                              )}
+                              <span className="text-xs flex-1 truncate font-mono"
+                                style={{ color: lk.is_valid ? "#c0c0d0" : "#505060", textDecoration: lk.is_valid ? "none" : "line-through" }}>
+                                {lk.url}
+                              </span>
+                              {lk.password && (
+                                <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
+                                  style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>密码:{lk.password}</span>
+                              )}
+                              <button onClick={() => toggleLinkValidity(lk.id, lk.is_valid)}
+                                className="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                                style={lk.is_valid
+                                  ? { background: "rgba(234,179,8,0.12)", color: "#facc15" }
+                                  : { background: "rgba(34,197,94,0.12)", color: "#4ade80" }}>
+                                {lk.is_valid ? "失效" : "恢复"}
+                              </button>
+                              <button onClick={() => deleteLink(lk.id)}
+                                className="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                                style={{ background: "rgba(239,68,68,0.12)", color: "#f87171" }}>删除</button>
+                            </div>
+                          );
+                        })
                       }
                     </div>
                   )}
