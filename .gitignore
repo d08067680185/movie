@@ -4,6 +4,7 @@ __pycache__/
 *.db
 *.db-shm
 *.db-wal
+!backend/movie_search.db
 venv/
 .env
 .env.*

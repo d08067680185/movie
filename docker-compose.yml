@@ -4,9 +4,9 @@ services:
     container_name: movie-backend
     restart: unless-stopped
     volumes:
-      - ./data:/app/data
+      - ./backend/movie_search.db:/app/movie_search.db
     environment:
-      - DATABASE_URL=sqlite+aiosqlite:///./data/movie_search.db
+      - DATABASE_URL=sqlite+aiosqlite:///./movie_search.db
       - TMDB_API_KEY=${TMDB_API_KEY:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://movie.mxzshs.com}
