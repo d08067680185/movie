@@ -283,31 +283,26 @@ export default function AdminPage() {
     color: "#f0f0f5",
   };
 
-  // 后台始终使用暗色模式（覆盖用户的日间主题）
-  const darkTheme: React.CSSProperties = {
-    "--bg-primary": "#0d0d12",
-    "--bg-secondary": "#13131a",
-    "--bg-card": "#1a1a24",
-    "--bg-card-hover": "#22222f",
-    "--bg-input": "rgba(255,255,255,0.07)",
-    "--text-primary": "#f2f2f8",
-    "--text-secondary": "#9898b0",
-    "--text-muted": "#606070",
-    "--border": "rgba(255,255,255,0.1)",
-    "--border-input": "rgba(255,255,255,0.12)",
-    "--border-bright": "rgba(255,255,255,0.18)",
-    colorScheme: "dark",
-  } as React.CSSProperties;
+  // 后台始终使用暗色硬编码值，不随用户日间主题改变
+  const DARK = {
+    bg: "#0d0d12",
+    bgSecondary: "#13131a",
+    bgCard: "#1a1a24",
+    border: "rgba(255,255,255,0.1)",
+    borderStr: "1px solid rgba(255,255,255,0.1)",
+    muted: "#606070",
+    text2: "#a0a0b0",
+  };
 
   const statusColors: Record<string, string> = { success: "#4ade80", failed: "#f87171", running: "#fbbf24" };
 
   if (!authed) {
     return (
       <div
-        style={{ ...darkTheme, minHeight: "100vh", background: "var(--bg-primary)", display: "flex", alignItems: "center", justifyContent: "center" }}
+        style={{ minHeight: "100vh", background: DARK.bg, color: "#f2f2f8", display: "flex", alignItems: "center", justifyContent: "center" }}
       >
         <div
-          style={{ width: 360, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 16, padding: 32 }}
+          style={{ width: 360, background: DARK.bgCard, border: DARK.borderStr, borderRadius: 16, padding: 32 }}
         >
           <div className="flex items-center gap-2 mb-8">
             <Settings size={24} style={{ color: "#e50914" }} />
@@ -337,9 +332,9 @@ export default function AdminPage() {
   }
 
   return (
-    <div style={{ ...darkTheme, minHeight: "100vh", background: "var(--bg-primary)" }}>
+    <div style={{ minHeight: "100vh", background: DARK.bg, color: "#f2f2f8" }}>
       {/* 顶部栏 */}
-      <div style={{ background: "var(--bg-secondary)", borderBottom: "1px solid var(--border)" }}>
+      <div style={{ background: DARK.bgSecondary, borderBottom: DARK.borderStr }}>
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Settings size={18} style={{ color: "#e50914" }} />
@@ -366,7 +361,7 @@ export default function AdminPage() {
               <div
                 key={label}
                 className="p-4 rounded-xl text-center"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                style={{ background: DARK.bgCard, border: DARK.borderStr }}
               >
                 <div className="text-2xl font-black" style={{ color: "#e50914" }}>{value}</div>
                 <div className="text-xs mt-1" style={{ color: "#606070" }}>{label}</div>
@@ -376,7 +371,7 @@ export default function AdminPage() {
         )}
 
         {/* ══ 手动批量导入 ══ */}
-        <div className="p-5 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid rgba(34,211,238,0.25)" }}>
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(34,211,238,0.25)" }}>
           <div className="flex items-center gap-2 mb-1">
             <Upload size={18} style={{ color: "#22d3ee" }} />
             <h2 className="text-lg font-bold">手动批量导入</h2>
@@ -444,7 +439,7 @@ export default function AdminPage() {
         </div>
 
         {/* ══ TMDb 批量导入 ══ */}
-        <div className="p-5 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid rgba(229,9,20,0.2)" }}>
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(229,9,20,0.2)" }}>
           <div className="flex items-center gap-2 mb-4">
             <Database size={18} style={{ color: "#e50914" }} />
             <h2 className="text-lg font-bold">TMDb 批量导入</h2>
@@ -512,7 +507,7 @@ export default function AdminPage() {
         </div>
 
         {/* ══ Bangumi 封面补全 ══ */}
-        <div className="p-5 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid rgba(168,85,247,0.25)" }}>
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(168,85,247,0.25)" }}>
           <div className="flex items-center gap-2 mb-1">
             <Image size={18} style={{ color: "#a855f7" }} />
             <h2 className="text-lg font-bold">Bangumi 封面补全</h2>
@@ -556,7 +551,7 @@ export default function AdminPage() {
         </div>
 
         {/* ══ 网盘链接搜索 ══ */}
-        <div className="p-5 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid rgba(6,182,212,0.2)" }}>
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(6,182,212,0.2)" }}>
           <div className="flex items-center gap-2 mb-1">
             <Search size={18} style={{ color: "#22d3ee" }} />
             <h2 className="text-lg font-bold">网盘链接搜索</h2>
@@ -624,7 +619,7 @@ export default function AdminPage() {
         </div>
 
         {/* ══ 资源链接管理 ══ */}
-        <div className="p-5 rounded-xl" style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}>
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold">资源链接管理</h2>
             <span className="text-xs" style={{ color: "#606070" }}>可搜索影片、查看/添加/删除下载链接</span>
@@ -722,7 +717,7 @@ export default function AdminPage() {
         {/* 添加链接弹窗 */}
         {addLinkForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }}>
-            <div className="w-full max-w-md p-6 rounded-2xl" style={{ background: "var(--bg-card)", border: "1px solid rgba(255,255,255,0.1)" }}>
+            <div className="w-full max-w-md p-6 rounded-2xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
               <h3 className="font-bold text-lg mb-4">添加下载链接</h3>
               <form onSubmit={addLink} className="space-y-3">
                 <div>
@@ -780,7 +775,7 @@ export default function AdminPage() {
             <form
               onSubmit={addSource}
               className="p-4 rounded-xl mb-4 space-y-3"
-              style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+              style={{ background: DARK.bgCard, border: DARK.borderStr }}
             >
               <h3 className="text-sm font-semibold">添加新数据源</h3>
               <div className="grid grid-cols-2 gap-3">
@@ -845,7 +840,7 @@ export default function AdminPage() {
               <div
                 key={src.id}
                 className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-xl"
-                style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                style={{ background: DARK.bgCard, border: DARK.borderStr }}
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
@@ -933,7 +928,7 @@ export default function AdminPage() {
       {msg && (
         <div
           className="fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium"
-          style={{ background: "var(--bg-card)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5", zIndex: 100 }}
+          style={{ background: DARK.bgCard, border: DARK.borderStr, color: "#f0f0f5", zIndex: 100 }}
         >
           {msg}
           <button onClick={() => setMsg("")} className="ml-3" style={{ color: "#606070" }}>✕</button>
