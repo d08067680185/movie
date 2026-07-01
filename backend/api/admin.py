@@ -43,6 +43,16 @@ async def create_source(
     return source
 
 
+@router.delete("/sources/{source_id}")
+async def delete_source(source_id: int, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    source = await db.get(Source, source_id)
+    if not source:
+        raise HTTPException(status_code=404)
+    await db.delete(source)
+    await db.commit()
+    return {"message": "已删除"}
+
+
 @router.patch("/sources/{source_id}/toggle")
 async def toggle_source(source_id: int, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
     source = await db.get(Source, source_id)
@@ -80,6 +90,27 @@ async def create_resource(data: ResourceCreate, db: AsyncSession = Depends(get_d
     await db.commit()
     await db.refresh(resource)
     return {"id": resource.id, "title": resource.title}
+
+
+@router.patch("/resources/{resource_id}")
+async def update_resource(
+    resource_id: int,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404)
+    editable = ["title", "title_en", "year", "category", "genre", "country", "synopsis", "poster_url", "rating"]
+    for field in editable:
+        if field in data and data[field] is not None:
+            val = data[field]
+            if field == "category":
+                val = _CAT_NORM.get(val, val)
+            setattr(resource, field, val)
+    await db.commit()
+    return {"message": "已更新"}
 
 
 @router.delete("/resources/{resource_id}")

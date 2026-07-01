@@ -79,10 +79,14 @@ export default function SearchContent() {
       setHistory(readHistory());
     }
     const year = searchParams.get("year");
+    const genre = searchParams.get("genre") || undefined;
+    const minRating = searchParams.get("min_rating");
     searchResources({
       q,
       category: category || undefined,
       year: year ? parseInt(year) : undefined,
+      genre,
+      min_rating: minRating ? parseFloat(minRating) : undefined,
       sort,
       page,
       page_size: 24,
@@ -109,22 +113,25 @@ export default function SearchContent() {
   }
 
   function clearAllFilters() {
-    router.push(q ? `/search?q=${encodeURIComponent(q)}` : "/search");
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    router.push(`/search${sp.toString() ? `?${sp.toString()}` : ""}`);
   }
 
   const totalPages = result ? Math.ceil(result.total / 24) : 0;
   const activeYear = searchParams.get("year");
   const activeGenre = searchParams.get("genre") || "";
-  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre);
+  const activeMinRating = searchParams.get("min_rating") || "";
+  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeMinRating);
   const [jumpInput, setJumpInput] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const GENRE_OPTIONS = ["动作", "爱情", "喜剧", "科幻", "恐怖", "悬疑", "动画", "奇幻", "历史", "犯罪", "剧情"];
 
-  // 有年份/类型筛选时自动展开
+  // 有年份/类型/评分筛选时自动展开
   useEffect(() => {
-    if (activeYear || activeGenre) setFiltersOpen(true);
-  }, [activeYear, activeGenre]);
+    if (activeYear || activeGenre || activeMinRating) setFiltersOpen(true);
+  }, [activeYear, activeGenre, activeMinRating]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -250,7 +257,7 @@ export default function SearchContent() {
           </div>
 
           {/* 类型筛选 */}
-          <div className="flex flex-wrap items-center gap-1.5 mb-4 sm:mb-6">
+          <div className="flex flex-wrap items-center gap-1.5 mb-3">
             <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>类型:</span>
             {GENRE_OPTIONS.map((g) => (
               <button
@@ -260,6 +267,26 @@ export default function SearchContent() {
                 style={activeGenre === g ? { background: "#e50914", color: "#fff" } : INACTIVE_BTN}
               >
                 {g}
+              </button>
+            ))}
+          </div>
+
+          {/* 评分筛选 */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4 sm:mb-6">
+            <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>评分:</span>
+            {[
+              { label: "9+ 神作", value: "9" },
+              { label: "8+ 佳作", value: "8" },
+              { label: "7+ 推荐", value: "7" },
+              { label: "6+ 还行", value: "6" },
+            ].map((r) => (
+              <button
+                key={r.value}
+                onClick={() => updateSearch({ min_rating: activeMinRating === r.value ? "" : r.value })}
+                className="px-2.5 py-1 rounded text-xs transition-all"
+                style={activeMinRating === r.value ? { background: "#f5c518", color: "#000" } : INACTIVE_BTN}
+              >
+                {r.label}
               </button>
             ))}
           </div>

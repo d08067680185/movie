@@ -31,6 +31,7 @@ async def search(
     category: Optional[str] = None,
     year: Optional[int] = None,
     genre: Optional[str] = None,
+    min_rating: Optional[float] = None,
     sort: str = Query("popular", description="popular|rating|newest|latest"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=50),
@@ -64,6 +65,9 @@ async def search(
 
     if genre:
         stmt = stmt.where(Resource.genre.ilike(f"%{genre}%"))
+
+    if min_rating is not None:
+        stmt = stmt.where(Resource.rating >= min_rating)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar()

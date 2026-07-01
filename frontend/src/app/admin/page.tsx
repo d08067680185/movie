@@ -116,6 +116,10 @@ export default function AdminPage() {
   const [telegramConfigured, setTelegramConfigured] = useState<boolean | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [showTelegramForm, setShowTelegramForm] = useState(false);
+  // 资源编辑
+  const [editResId, setEditResId] = useState<number | null>(null);
+  const [editResForm, setEditResForm] = useState({ title: "", year: "", category: "电影", genre: "", synopsis: "", poster_url: "", rating: "" });
+  const [editResRunning, setEditResRunning] = useState(false);
 
   // msg 5 秒后自动消除
   useEffect(() => {
@@ -439,6 +443,40 @@ export default function AdminPage() {
     if (!linkInput.url.trim()) return;
     setAddResLinks(l => [...l, { ...linkInput }]);
     setLinkInput(f => ({ ...f, url: "", password: "" }));
+  }
+
+  async function updateResource(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editResId) return;
+    setEditResRunning(true);
+    const body: Record<string, string | number | undefined> = {};
+    if (editResForm.title) body.title = editResForm.title;
+    if (editResForm.year) body.year = parseInt(editResForm.year);
+    if (editResForm.category) body.category = editResForm.category;
+    if (editResForm.genre) body.genre = editResForm.genre;
+    if (editResForm.synopsis) body.synopsis = editResForm.synopsis;
+    if (editResForm.poster_url) body.poster_url = editResForm.poster_url;
+    if (editResForm.rating) body.rating = parseFloat(editResForm.rating);
+    const resp = await apiFetch(`/api/admin/resources/${editResId}`, { method: "PATCH", body: JSON.stringify(body) }, token);
+    if (resp.ok) {
+      setMsg("资源已更新");
+      setEditResId(null);
+      loadResources();
+    } else {
+      setMsg("更新失败");
+    }
+    setEditResRunning(false);
+  }
+
+  async function deleteSource(sourceId: number, name: string) {
+    if (!confirm(`确认删除数据源「${name}」？相关爬虫日志将保留，已爬取的资源不受影响。`)) return;
+    const resp = await apiFetch(`/api/admin/sources/${sourceId}`, { method: "DELETE" }, token);
+    if (resp.ok) {
+      setMsg(`已删除数据源「${name}」`);
+      loadData();
+    } else {
+      setMsg("删除失败");
+    }
   }
 
   async function saveTmdbKey(e: React.FormEvent) {
@@ -1400,11 +1438,20 @@ export default function AdminPage() {
                         </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
                       <button onClick={e => { e.stopPropagation(); setAddLinkForm({ resource_id: res.id, url: "", link_type: "pan_quark", password: "" }); }}
                         className="px-2 py-1 rounded text-xs"
                         style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>
                         + 链接
+                      </button>
+                      <button onClick={e => {
+                        e.stopPropagation();
+                        setEditResId(res.id);
+                        setEditResForm({ title: res.title, year: res.year ? String(res.year) : "", category: res.category || "电影", genre: "", synopsis: "", poster_url: res.poster_url || "", rating: res.rating ? String(res.rating) : "" });
+                      }}
+                        className="px-2 py-1 rounded text-xs"
+                        style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.2)" }}>
+                        编辑
                       </button>
                       <button onClick={e => { e.stopPropagation(); deleteResource(res.id, res.title); }}
                         className="px-2 py-1 rounded text-xs"
@@ -1485,6 +1532,77 @@ export default function AdminPage() {
             </button>
           )}
         </div>
+
+        {/* 资源编辑弹窗 */}
+        {editResId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }}>
+            <div className="w-full max-w-lg p-6 rounded-2xl mx-4" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
+              <h3 className="font-bold text-lg mb-4">编辑资源 <span className="text-sm font-normal" style={{ color: DARK.muted }}>#{editResId}</span></h3>
+              <form onSubmit={updateResource} className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: DARK.muted }}>标题 *</label>
+                    <input value={editResForm.title} onChange={e => setEditResForm(f => ({ ...f, title: e.target.value }))}
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={inputStyle} required />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: DARK.muted }}>年份</label>
+                    <input type="number" value={editResForm.year} onChange={e => setEditResForm(f => ({ ...f, year: e.target.value }))}
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={inputStyle} placeholder="2024" />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: DARK.muted }}>分类</label>
+                    <select value={editResForm.category} onChange={e => setEditResForm(f => ({ ...f, category: e.target.value }))}
+                      className="w-full px-3 py-2 rounded outline-none text-sm" style={{ ...inputStyle, background: "rgba(30,30,40,1)" }}>
+                      <option value="电影">电影</option>
+                      <option value="电视剧">电视剧</option>
+                      <option value="动漫">动漫</option>
+                      <option value="经典资源">经典资源</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: DARK.muted }}>评分</label>
+                    <input type="number" step="0.1" min="0" max="10" value={editResForm.rating} onChange={e => setEditResForm(f => ({ ...f, rating: e.target.value }))}
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={inputStyle} placeholder="8.5" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>类型（genre）</label>
+                  <input value={editResForm.genre} onChange={e => setEditResForm(f => ({ ...f, genre: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={inputStyle} placeholder="动作/科幻/爱情" />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>封面图 URL</label>
+                  <input value={editResForm.poster_url} onChange={e => setEditResForm(f => ({ ...f, poster_url: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={inputStyle} placeholder="https://..." />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>简介（留空则不修改）</label>
+                  <textarea value={editResForm.synopsis} onChange={e => setEditResForm(f => ({ ...f, synopsis: e.target.value }))}
+                    rows={3} className="w-full px-3 py-2 rounded outline-none text-sm resize-none"
+                    style={inputStyle} placeholder="剧情简介..." />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button type="submit" disabled={editResRunning || !editResForm.title}
+                    className="flex-1 py-2 rounded font-semibold text-white disabled:opacity-40 text-sm"
+                    style={{ background: "#e50914" }}>
+                    {editResRunning ? "保存中..." : "保存修改"}
+                  </button>
+                  <button type="button" onClick={() => setEditResId(null)}
+                    className="px-6 py-2 rounded text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+                    取消
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* 添加链接弹窗 */}
         {addLinkForm && (
@@ -1658,6 +1776,14 @@ export default function AdminPage() {
                     style={{ background: "rgba(229,9,20,0.15)", color: "#ff6070", border: "1px solid rgba(229,9,20,0.3)" }}
                   >
                     <Play size={12} /> 立即爬取
+                  </button>
+                  <button
+                    onClick={() => deleteSource(src.id, src.name)}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs"
+                    style={{ background: "rgba(239,68,68,0.08)", color: "#f87171", border: "1px solid rgba(239,68,68,0.15)" }}
+                    title="删除此数据源"
+                  >
+                    ✕
                   </button>
                 </div>
               </div>
