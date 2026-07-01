@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     SPIDER_INTERVAL_HOURS: int = 6
     MAX_PAGES_PER_SOURCE: int = 10
+    TELEGRAM_BOT_TOKEN: Optional[str] = None
+    TELEGRAM_CHAT_ID: Optional[str] = None
 
     class Config:
         env_file = ".env"

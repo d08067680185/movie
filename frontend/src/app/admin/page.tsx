@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus } from "lucide-react";
+import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus, Bell, HardDrive, GitMerge, AlertTriangle, CheckCircle } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -41,6 +41,20 @@ interface Log {
   started_at: string;
   finished_at?: string;
 }
+
+interface TaskItem {
+  id: string; name: string; status: "running" | "success" | "failed";
+  total: number; done: number; message: string;
+  started_at: string; finished_at: string | null;
+}
+
+interface DupResource {
+  id: number; title: string; year?: number; category?: string; link_count: number;
+}
+interface DupGroup {
+  title: string; year?: number; count: number; resources: DupResource[];
+}
+interface BackupItem { name: string; size_mb: number; created_at: string; }
 
 export default function AdminPage() {
   const [token, setToken] = useState("");
@@ -87,6 +101,21 @@ export default function AdminPage() {
   const [tmdbKey, setTmdbKey] = useState("");
   const [tmdbKeyConfigured, setTmdbKeyConfigured] = useState<boolean | null>(null);
   const [tmdbKeyLoading, setTmdbKeyLoading] = useState(false);
+  // A: 任务进度
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  // B: 重复检测
+  const [dupData, setDupData] = useState<DupGroup[] | null>(null);
+  const [dupLoading, setDupLoading] = useState(false);
+  // C: 链接检测
+  const [linkCheckRunning, setLinkCheckRunning] = useState(false);
+  // E: 备份
+  const [backups, setBackups] = useState<BackupItem[]>([]);
+  const [backupRunning, setBackupRunning] = useState(false);
+  // E: Telegram
+  const [telegramForm, setTelegramForm] = useState({ bot_token: "", chat_id: "" });
+  const [telegramConfigured, setTelegramConfigured] = useState<boolean | null>(null);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [showTelegramForm, setShowTelegramForm] = useState(false);
 
   // msg 5 秒后自动消除
   useEffect(() => {
@@ -94,6 +123,22 @@ export default function AdminPage() {
     const t = setTimeout(() => setMsg(""), 5000);
     return () => clearTimeout(t);
   }, [msg]);
+
+  // 登录后加载任务列表和状态
+  useEffect(() => {
+    if (!authed) return;
+    loadTasks();
+    loadTelegramStatus();
+    loadBackups();
+  }, [authed]); // eslint-disable-line
+
+  // 有运行中任务时每 3s 轮询
+  const hasRunningTasks = tasks.some(t => t.status === "running");
+  useEffect(() => {
+    if (!hasRunningTasks) return;
+    const id = setInterval(loadTasks, 3000);
+    return () => clearInterval(id);
+  }, [hasRunningTasks]); // eslint-disable-line
 
   async function login(e: React.FormEvent) {
     e.preventDefault();
@@ -419,6 +464,83 @@ export default function AdminPage() {
     }
   }
 
+  async function loadTasks() {
+    const resp = await apiFetch("/api/admin/tasks", {}, token);
+    if (resp.ok) setTasks(await resp.json());
+  }
+
+  async function loadDuplicates() {
+    setDupLoading(true);
+    const resp = await apiFetch("/api/admin/duplicates?limit=30", {}, token);
+    if (resp.ok) setDupData(await resp.json());
+    setDupLoading(false);
+  }
+
+  async function mergeDuplicate(keepId: number, dupId: number, title: string) {
+    if (!confirm(`合并「${title}」的重复项？\n将把 ID:${dupId} 的链接移到 ID:${keepId}，然后删除 ID:${dupId}。`)) return;
+    const resp = await apiFetch(`/api/admin/resources/${keepId}/merge/${dupId}`, { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      loadDuplicates();
+    }
+  }
+
+  async function triggerLinkCheck() {
+    setLinkCheckRunning(true);
+    const resp = await apiFetch("/api/admin/check-links?max_per_run=30", { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      setTimeout(loadTasks, 1000);
+    } else {
+      setMsg("链接检测触发失败");
+    }
+    setLinkCheckRunning(false);
+  }
+
+  async function createBackup() {
+    setBackupRunning(true);
+    const resp = await apiFetch("/api/admin/backup", { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      loadBackups();
+    } else {
+      setMsg("备份失败");
+    }
+    setBackupRunning(false);
+  }
+
+  async function loadBackups() {
+    const resp = await apiFetch("/api/admin/backups", {}, token);
+    if (resp.ok) setBackups(await resp.json());
+  }
+
+  async function saveTelegramConfig(e: React.FormEvent) {
+    e.preventDefault();
+    setTelegramLoading(true);
+    const resp = await apiFetch("/api/admin/telegram-config", { method: "POST", body: JSON.stringify(telegramForm) }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      setTelegramConfigured(true);
+      setTelegramForm({ bot_token: "", chat_id: "" });
+      setShowTelegramForm(false);
+    } else {
+      setMsg("保存失败");
+    }
+    setTelegramLoading(false);
+  }
+
+  async function loadTelegramStatus() {
+    const resp = await apiFetch("/api/admin/telegram-status", {}, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setTelegramConfigured(d.configured);
+    }
+  }
+
   async function addRssSource(name: string, url: string) {
     const sp = new URLSearchParams({ name, spider_class: "rss", base_url: url });
     const resp = await apiFetch(`/api/admin/sources?${sp.toString()}`, { method: "POST", body: JSON.stringify({}) }, token);
@@ -523,6 +645,185 @@ export default function AdminPage() {
             ))}
           </div>
         )}
+
+        {/* ══ A: 后台任务进度 ══ */}
+        {tasks.length > 0 && (
+          <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: `1px solid ${hasRunningTasks ? "rgba(251,191,36,0.4)" : "rgba(255,255,255,0.08)"}` }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <RefreshCw size={16} className={hasRunningTasks ? "animate-spin" : ""} style={{ color: "#fbbf24" }} />
+                <h2 className="text-base font-bold">后台任务</h2>
+                {hasRunningTasks && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>进行中</span>}
+              </div>
+              <button onClick={loadTasks} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#606070" }}>刷新</button>
+            </div>
+            <div className="space-y-2">
+              {tasks.slice(0, 8).map(t => {
+                const pct = t.total > 0 ? Math.min(100, Math.round(t.done / t.total * 100)) : null;
+                const color = t.status === "success" ? "#4ade80" : t.status === "failed" ? "#f87171" : "#fbbf24";
+                return (
+                  <div key={t.id} className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-bold w-12 shrink-0" style={{ color }}>{t.status}</span>
+                      <span className="text-sm flex-1 truncate">{t.name}</span>
+                      <span className="text-xs shrink-0" style={{ color: "#606070" }}>{new Date(t.started_at + "Z").toLocaleTimeString("zh-CN")}</span>
+                    </div>
+                    {t.message && <p className="text-xs mt-1.5 pl-14" style={{ color: "#a0a0b0" }}>{t.message}</p>}
+                    {pct !== null && t.status === "running" && (
+                      <div className="mt-2 pl-14">
+                        <div className="h-1 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: "#fbbf24" }} />
+                        </div>
+                        <span className="text-xs mt-0.5" style={{ color: "#606070" }}>{t.done}/{t.total} ({pct}%)</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ══ E: 系统工具（备份 + 链接检测 + Telegram）══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(96,165,250,0.25)" }}>
+          <div className="flex items-center gap-2 mb-4">
+            <HardDrive size={18} style={{ color: "#60a5fa" }} />
+            <h2 className="text-lg font-bold">系统工具</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {/* 数据库备份 */}
+            <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-sm font-medium mb-1">数据库备份</p>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>
+                手动备份 SQLite 到 backups/ 目录（每日凌晨 3 点自动备份）
+                {backups.length > 0 && <span className="ml-2" style={{ color: "#4ade80" }}>已有 {backups.length} 个备份</span>}
+              </p>
+              <button onClick={createBackup} disabled={backupRunning}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}>
+                <HardDrive size={14} /> {backupRunning ? "备份中..." : "立即备份"}
+              </button>
+              {backups.slice(0, 3).map(b => (
+                <div key={b.name} className="mt-2 text-xs" style={{ color: "#606070" }}>
+                  📦 {b.name} ({b.size_mb} MB)
+                </div>
+              ))}
+            </div>
+
+            {/* 链接有效性检测 */}
+            <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-sm font-medium mb-1">链接有效性检测</p>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>随机抽取 30 条网盘链接，发送 HEAD 请求，将失效链接标记为失效</p>
+              <button onClick={triggerLinkCheck} disabled={linkCheckRunning}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #0891b2 0%, #0e7490 100%)" }}>
+                <AlertTriangle size={14} /> {linkCheckRunning ? "检测中..." : "开始检测"}
+              </button>
+              <p className="text-xs mt-2" style={{ color: "#404050" }}>检测进度可在「后台任务」面板中查看</p>
+            </div>
+
+            {/* Telegram 通知 */}
+            <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <div className="flex items-center gap-2 mb-1">
+                <Bell size={14} style={{ color: "#60a5fa" }} />
+                <p className="text-sm font-medium">Telegram 通知</p>
+                {telegramConfigured === true && <CheckCircle size={12} style={{ color: "#4ade80" }} />}
+              </div>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>
+                {telegramConfigured ? "已配置，爬虫失败时自动推送通知" : "配置后，爬虫失败时自动推送通知"}
+              </p>
+              {!showTelegramForm ? (
+                <button onClick={() => setShowTelegramForm(true)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium"
+                  style={{ background: "rgba(96,165,250,0.15)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.3)" }}>
+                  {telegramConfigured ? "重新配置" : "配置通知"}
+                </button>
+              ) : (
+                <form onSubmit={saveTelegramConfig} className="space-y-2">
+                  <input value={telegramForm.bot_token} onChange={e => setTelegramForm(f => ({ ...f, bot_token: e.target.value }))}
+                    placeholder="Bot Token (来自 @BotFather)" required
+                    className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                  <input value={telegramForm.chat_id} onChange={e => setTelegramForm(f => ({ ...f, chat_id: e.target.value }))}
+                    placeholder="Chat ID (@userinfobot 可获取)" required
+                    className="w-full px-2 py-1.5 rounded text-xs outline-none"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={telegramLoading}
+                      className="flex-1 py-1.5 rounded text-xs font-medium text-white disabled:opacity-50"
+                      style={{ background: "#2563eb" }}>
+                      {telegramLoading ? "保存中..." : "保存"}
+                    </button>
+                    <button type="button" onClick={() => setShowTelegramForm(false)}
+                      className="px-3 py-1.5 rounded text-xs"
+                      style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>取消</button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ══ B: 重复数据检测 ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(251,146,60,0.25)" }}>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <GitMerge size={18} style={{ color: "#fb923c" }} />
+              <h2 className="text-lg font-bold">重复数据检测</h2>
+              <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>
+                按标题+年份去重
+              </span>
+            </div>
+            <button onClick={loadDuplicates} disabled={dupLoading}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm"
+              style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.25)" }}>
+              <RefreshCw size={13} className={dupLoading ? "animate-spin" : ""} />
+              {dupData === null ? "扫描重复项" : "重新扫描"}
+            </button>
+          </div>
+
+          {dupData === null && !dupLoading && (
+            <p className="text-sm" style={{ color: "#606070" }}>点击「扫描重复项」检查数据库中是否存在同名同年的重复资源</p>
+          )}
+          {dupLoading && <p className="text-sm" style={{ color: "#a0a0b0" }}>扫描中...</p>}
+          {dupData !== null && dupData.length === 0 && (
+            <div className="flex items-center gap-2 text-sm" style={{ color: "#4ade80" }}>
+              <CheckCircle size={16} /> 未发现重复资源
+            </div>
+          )}
+          {dupData !== null && dupData.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-xs" style={{ color: "#fb923c" }}>发现 {dupData.length} 组重复资源，点击「保留」将保留该条并合并链接，另一条将被删除</p>
+              {dupData.map((group, gi) => (
+                <div key={gi} className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(251,146,60,0.15)" }}>
+                  <div className="text-sm font-medium mb-2">
+                    {group.title} {group.year && <span style={{ color: "#606070" }}>({group.year})</span>}
+                    <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>{group.count} 条</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {group.resources.map((r, ri) => (
+                      <div key={r.id} className="flex items-center gap-2 text-xs">
+                        <span style={{ color: "#606070" }}>ID:{r.id}</span>
+                        <span style={{ color: r.link_count > 0 ? "#4ade80" : "#f87171" }}>{r.link_count} 条链接</span>
+                        <span style={{ color: "#a0a0b0" }}>{r.category}</span>
+                        <div className="flex gap-1 ml-auto">
+                          {group.resources.filter((_, j) => j !== ri).map(other => (
+                            <button key={other.id}
+                              onClick={() => mergeDuplicate(r.id, other.id, group.title)}
+                              className="px-2 py-0.5 rounded text-xs"
+                              style={{ background: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.2)" }}>
+                              保留此条，删除 ID:{other.id}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* ══ 账号密码管理 ══ */}
         <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(251,191,36,0.25)" }}>

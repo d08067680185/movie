@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
@@ -8,6 +8,8 @@ from models import Source, SpiderLog, Resource, ResourceLink
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
+import tasks as task_registry
+from utils import backup_db, list_backups, send_telegram
 import asyncio
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -424,6 +426,198 @@ async def batch_import(
             skipped += 1
 
     return BatchImportResult(created=created, updated=updated, links_added=links_added, skipped=skipped, errors=errors)
+
+
+@router.get("/tasks")
+async def get_tasks(_=Depends(verify_admin)):
+    """A: 返回后台任务进度列表"""
+    task_registry.clear_old_tasks()
+    return task_registry.get_tasks()
+
+
+@router.get("/duplicates")
+async def get_duplicates(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    """B: 找出重复标题的资源（按标题+年份去重）"""
+    stmt = text("""
+        SELECT title, year, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+        FROM resources
+        GROUP BY title, year
+        HAVING cnt > 1
+        ORDER BY cnt DESC
+        LIMIT :limit
+    """)
+    rows = (await db.execute(stmt, {"limit": limit})).fetchall()
+    result = []
+    for row in rows:
+        ids = [int(i) for i in row.ids.split(",")]
+        resources = (await db.execute(
+            select(Resource).where(Resource.id.in_(ids)).options(selectinload(Resource.links))
+        )).scalars().all()
+        result.append({
+            "title": row.title,
+            "year": row.year,
+            "count": row.cnt,
+            "resources": [{
+                "id": r.id, "title": r.title, "year": r.year,
+                "category": r.category, "poster_url": r.poster_url,
+                "link_count": len(r.links),
+            } for r in resources],
+        })
+    return result
+
+
+@router.post("/resources/{keep_id}/merge/{dup_id}")
+async def merge_resources(
+    keep_id: int,
+    dup_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    """B: 将 dup_id 的链接合并到 keep_id，然后删除 dup_id"""
+    keep = await db.get(Resource, keep_id)
+    dup = await db.get(Resource, dup_id)
+    if not keep or not dup:
+        raise HTTPException(status_code=404, detail="资源不存在")
+
+    # 移动链接（URL去重）
+    dup_links = (await db.execute(
+        select(ResourceLink).where(ResourceLink.resource_id == dup_id)
+    )).scalars().all()
+    keep_urls = set(r[0] for r in (await db.execute(
+        select(ResourceLink.url).where(ResourceLink.resource_id == keep_id)
+    )).all())
+
+    moved = 0
+    for lk in dup_links:
+        if lk.url not in keep_urls:
+            lk.resource_id = keep_id
+            keep_urls.add(lk.url)
+            moved += 1
+        else:
+            await db.delete(lk)
+
+    # 补全缺失元数据
+    for field in ("poster_url", "synopsis", "rating", "genre", "country", "directors", "actors"):
+        if not getattr(keep, field) and getattr(dup, field):
+            setattr(keep, field, getattr(dup, field))
+
+    await db.flush()
+    await db.execute(delete(Resource).where(Resource.id == dup_id))
+    await db.commit()
+    return {"message": f"已合并：移动 {moved} 条链接，删除资源 {dup_id}"}
+
+
+@router.post("/check-links")
+async def check_links(
+    max_per_run: int = 30,
+    _=Depends(verify_admin),
+):
+    """C: 对网盘链接发送 HEAD 请求，将无法访问的标记为失效"""
+    from database import AsyncSessionLocal
+    task_id = f"check_links_{int(asyncio.get_event_loop().time())}"
+    task_registry.start_task(task_id, f"链接有效性检测（最多 {max_per_run} 条）", total=max_per_run)
+
+    async def _run():
+        import aiohttp
+        pan_types = {"pan_quark", "pan_baidu", "pan_aliyun", "direct"}
+        # 独立 session 加载链接列表
+        async with AsyncSessionLocal() as fetch_db:
+            stmt = (select(ResourceLink)
+                    .where(ResourceLink.is_valid == True, ResourceLink.link_type.in_(pan_types))
+                    .order_by(func.random())
+                    .limit(max_per_run))
+            link_rows = (await fetch_db.execute(stmt)).scalars().all()
+            links = [(lk.id, lk.url) for lk in link_rows]
+
+        invalid_count = 0
+        headers = {"User-Agent": "Mozilla/5.0"}
+        async with aiohttp.ClientSession(headers=headers) as session:
+            for i, (link_id, url) in enumerate(links):
+                try:
+                    async with session.head(url, timeout=aiohttp.ClientTimeout(total=8), allow_redirects=True) as resp:
+                        if resp.status in (404, 403, 410):
+                            async with AsyncSessionLocal() as inner_db:
+                                link = await inner_db.get(ResourceLink, link_id)
+                                if link:
+                                    link.is_valid = False
+                                    await inner_db.commit()
+                            invalid_count += 1
+                except Exception:
+                    pass
+                task_registry.update_task(task_id, done=i + 1, message=f"已检测 {i+1}/{len(links)}，失效 {invalid_count} 条")
+
+        task_registry.finish_task(task_id, "success", f"检测完成：{len(links)} 条，失效 {invalid_count} 条")
+
+
+    asyncio.create_task(_run())
+    return {"message": f"链接检测已启动，任务 ID: {task_id}", "task_id": task_id}
+
+
+@router.post("/backup")
+async def create_backup(_=Depends(verify_admin)):
+    """E: 创建数据库备份"""
+    try:
+        path = backup_db()
+        return {"message": f"备份成功：{path}", "path": path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/backups")
+async def get_backups(_=Depends(verify_admin)):
+    """E: 列出历史备份"""
+    return list_backups()
+
+
+@router.post("/telegram-config")
+async def set_telegram_config(payload: dict, _=Depends(verify_admin)):
+    """E: 配置 Telegram 通知"""
+    token = payload.get("bot_token", "").strip()
+    chat_id = payload.get("chat_id", "").strip()
+    settings.TELEGRAM_BOT_TOKEN = token or None
+    settings.TELEGRAM_CHAT_ID = chat_id or None
+    env_path = ".env"
+    try:
+        import os
+        lines = []
+        existing = set()
+        if os.path.exists(env_path):
+            with open(env_path) as f:
+                for line in f:
+                    if line.startswith("TELEGRAM_BOT_TOKEN="):
+                        lines.append(f"TELEGRAM_BOT_TOKEN={token}\n")
+                        existing.add("token")
+                    elif line.startswith("TELEGRAM_CHAT_ID="):
+                        lines.append(f"TELEGRAM_CHAT_ID={chat_id}\n")
+                        existing.add("chat_id")
+                    else:
+                        lines.append(line)
+        if "token" not in existing:
+            lines.append(f"TELEGRAM_BOT_TOKEN={token}\n")
+        if "chat_id" not in existing:
+            lines.append(f"TELEGRAM_CHAT_ID={chat_id}\n")
+        with open(env_path, "w") as f:
+            f.writelines(lines)
+    except Exception:
+        pass
+
+    if token and chat_id:
+        await send_telegram("✅ 影视搜索系统 Telegram 通知已配置成功！")
+        return {"message": "已配置，测试消息已发送"}
+    return {"message": "已清除 Telegram 配置"}
+
+
+@router.get("/telegram-status")
+async def telegram_status(_=Depends(verify_admin)):
+    return {
+        "configured": bool(settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID),
+        "has_token": bool(settings.TELEGRAM_BOT_TOKEN),
+        "has_chat_id": bool(settings.TELEGRAM_CHAT_ID),
+    }
 
 
 @router.post("/sources/create-pan-search")

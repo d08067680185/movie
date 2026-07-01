@@ -32,6 +32,13 @@ async def lifespan(app: FastAPI):
         hours=settings.SPIDER_INTERVAL_HOURS,
         id="crawl_all",
     )
+    scheduler.add_job(
+        lambda: __import__("utils", fromlist=["backup_db"]).backup_db(),
+        "cron",
+        hour=3,
+        minute=0,
+        id="daily_backup",
+    )
     scheduler.start()
     logger.info("Scheduler started")
 

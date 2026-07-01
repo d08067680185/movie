@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import AsyncSessionLocal
 from models import Source, Resource, ResourceLink, SpiderLog
 from spiders import SPIDER_REGISTRY
-from config import settings
+from config import settings, CATEGORY_MAP as _CAT_NORM
+import tasks as task_registry
+from utils import send_telegram
 
 logger = logging.getLogger(__name__)
-
-from config import CATEGORY_MAP as _CAT_NORM
 
 
 async def run_spider(source_id: int):
@@ -22,6 +22,9 @@ async def run_spider(source_id: int):
         if not spider_class:
             logger.error(f"Spider class '{source.spider_class}' not found")
             return
+
+        task_id = f"spider_{source_id}_{int(datetime.utcnow().timestamp())}"
+        task_registry.start_task(task_id, f"爬虫: {source.name}")
 
         log = SpiderLog(source_id=source_id, status="running")
         db.add(log)
@@ -46,6 +49,11 @@ async def run_spider(source_id: int):
                             updated_count += 1
 
                     await db.commit()
+                    task_registry.update_task(
+                        task_id,
+                        done=new_count + updated_count,
+                        message=f"第 {page} 页，新增 {new_count}，更新 {updated_count}",
+                    )
 
             await db.execute(
                 update(Source)
@@ -66,6 +74,7 @@ async def run_spider(source_id: int):
                 )
             )
             await db.commit()
+            task_registry.finish_task(task_id, "success", f"完成：+{new_count} 新增，~{updated_count} 更新")
             logger.info(f"Spider {source.name}: +{new_count} new, ~{updated_count} updated")
 
         except Exception as e:
@@ -76,12 +85,13 @@ async def run_spider(source_id: int):
                 .values(status="failed", error_msg=str(e), finished_at=datetime.utcnow())
             )
             await db.commit()
+            task_registry.finish_task(task_id, "failed", str(e))
+            await send_telegram(f"⚠️ <b>爬虫失败</b>\n来源: {source.name}\n错误: {e}")
 
 
 async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
     from sqlalchemy import func as sqlfunc
 
-    # 先按标题+年份查找
     stmt = select(Resource).where(
         Resource.title == item.title,
         Resource.year == item.year,
@@ -89,7 +99,6 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
     result = await db.execute(stmt)
     resource = result.scalars().first()
 
-    # TMDb 专属：按 tmdb_id 优先去重
     tmdb_id = getattr(item, "_tmdb_id", None)
     if tmdb_id and resource is None:
         r2 = (await db.execute(select(Resource).where(Resource.tmdb_id == tmdb_id))).scalars().first()
@@ -110,7 +119,6 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
             directors=item.directors,
             actors=item.actors,
         )
-        # 写入 TMDb 专属字段
         if tmdb_id:
             resource.tmdb_id = tmdb_id
         for attr in ("_title_en", "_imdb_id", "_language", "_duration",
@@ -122,7 +130,6 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
         await db.flush()
         status = "new"
     else:
-        # 补全缺失字段
         if item.poster_url and not resource.poster_url:
             resource.poster_url = item.poster_url
         if item.synopsis and not resource.synopsis:
@@ -138,7 +145,6 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
                 setattr(resource, col, val)
         status = "updated"
 
-    # 添加链接（去重）
     for link_data in item.links:
         existing = await db.execute(
             select(ResourceLink).where(
