@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Star, Link2, Eye, Heart } from "lucide-react";
+import { Star, Link2, Eye, Heart, Share2, Check } from "lucide-react";
 import { ResourceCard as ResourceCardType } from "@/lib/api";
 import { CATEGORY_LABELS as CAT_LABELS } from "@/lib/utils";
 import { toggleFavorite, isFavorited } from "@/lib/favorites";
@@ -21,6 +21,7 @@ const BADGE_CLASS: Record<string, string> = {
 export default function ResourceCard({ resource }: Props) {
   const [imgError, setImgError] = useState(false);
   const [faved, setFaved] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -33,6 +34,16 @@ export default function ResourceCard({ resource }: Props) {
     const result = toggleFavorite(resource);
     setFaved(result);
   }, [resource]);
+
+  const handleShare = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `${window.location.origin}/detail/${resource.id}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 1500);
+    });
+  }, [resource.id]);
 
   return (
     <Link href={`/detail/${resource.id}`} className="block resource-card">
@@ -89,19 +100,36 @@ export default function ResourceCard({ resource }: Props) {
             </div>
           )}
 
-          {/* 收藏按钮 */}
-          <button
-            onClick={handleFav}
-            className="absolute bottom-2 right-2 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200"
-            style={{
-              background: faved ? "rgba(229,9,20,0.85)" : "rgba(0,0,0,0.6)",
-              backdropFilter: "blur(4px)",
-              ...(faved ? { opacity: 1 } : {}),
-            }}
-            title={faved ? "取消收藏" : "收藏"}
+          {/* 操作按钮区（分享 + 收藏） */}
+          <div
+            className="absolute bottom-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-all duration-200"
+            style={faved ? { opacity: 1 } : {}}
           >
-            <Heart size={12} fill={faved ? "#fff" : "none"} color="#fff" />
-          </button>
+            <button
+              onClick={handleShare}
+              className="p-1.5 rounded-full transition-colors"
+              style={{
+                background: shareCopied ? "rgba(34,197,94,0.85)" : "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(4px)",
+              }}
+              title="复制链接"
+            >
+              {shareCopied
+                ? <Check size={12} color="#fff" />
+                : <Share2 size={12} color="#fff" />}
+            </button>
+            <button
+              onClick={handleFav}
+              className="p-1.5 rounded-full transition-colors"
+              style={{
+                background: faved ? "rgba(229,9,20,0.85)" : "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(4px)",
+              }}
+              title={faved ? "取消收藏" : "收藏"}
+            >
+              <Heart size={12} fill={faved ? "#fff" : "none"} color="#fff" />
+            </button>
+          </div>
 
           {/* 悬停渐变遮罩 */}
           <div

@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal } from "lucide-react";
+import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, Share2 } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
@@ -128,6 +128,9 @@ export default function SearchContent() {
   const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeMinRating || activeHasLinks);
   const [jumpInput, setJumpInput] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [searchShareOpen, setSearchShareOpen] = useState(false);
+  const [searchShareCopied, setSearchShareCopied] = useState(false);
+  const searchShareRef = useRef<HTMLDivElement>(null);
 
   const GENRE_OPTIONS = ["动作", "爱情", "喜剧", "科幻", "恐怖", "悬疑", "动画", "奇幻", "历史", "犯罪", "剧情"];
 
@@ -136,6 +139,43 @@ export default function SearchContent() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     if (activeYear || activeGenre || activeMinRating || activeHasLinks) setFiltersOpen(true);
   }, [activeYear, activeGenre, activeMinRating, activeHasLinks]);
+
+  // 点击外部关闭分享面板
+  useEffect(() => {
+    if (!searchShareOpen) return;
+    function handler(e: MouseEvent) {
+      if (searchShareRef.current && !searchShareRef.current.contains(e.target as Node)) {
+        setSearchShareOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [searchShareOpen]);
+
+  function copySearchUrl() {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      setSearchShareCopied(true);
+      setTimeout(() => { setSearchShareCopied(false); setSearchShareOpen(false); }, 1500);
+    });
+  }
+  function shareSearchToWeibo() {
+    const shareTitle = `影视搜索${q ? ` - ${q}` : ""}`;
+    window.open(`https://service.weibo.com/share/share.php?url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(shareTitle)}`, "_blank");
+    setSearchShareOpen(false);
+  }
+  function shareSearchToTelegram() {
+    window.open(`https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(q || "影视搜索")}`, "_blank");
+    setSearchShareOpen(false);
+  }
+  function shareSearchToTwitter() {
+    const text = `影视搜索${q ? ` - ${q}` : ""}`;
+    window.open(`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(text)}`, "_blank");
+    setSearchShareOpen(false);
+  }
+  async function systemShareSearch() {
+    try { await navigator.share({ title: `影视搜索${q ? ` - ${q}` : ""}`, url: window.location.href }); } catch { /* cancelled */ }
+    setSearchShareOpen(false);
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -240,6 +280,59 @@ export default function SearchContent() {
                 <span className="hidden sm:inline">清除</span>
               </button>
             )}
+
+            {/* 分享搜索结果 */}
+            <div ref={searchShareRef} className="relative">
+              <button
+                onClick={() => setSearchShareOpen((v) => !v)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-all"
+                style={searchShareOpen
+                  ? { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "var(--text-secondary)" }
+                  : INACTIVE_BTN}
+                title="分享当前筛选结果"
+              >
+                <Share2 size={11} />
+                <span className="hidden sm:inline">分享</span>
+              </button>
+
+              {searchShareOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 w-44 rounded-xl z-50 overflow-hidden shadow-2xl"
+                  style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                >
+                  {[
+                    { icon: "📋", label: searchShareCopied ? "已复制 ✓" : "复制链接", action: copySearchUrl, active: searchShareCopied },
+                    { icon: "🌐", label: "微博", action: shareSearchToWeibo },
+                    { icon: "✈️", label: "Telegram", action: shareSearchToTelegram },
+                    { icon: "𝕏", label: "Twitter / X", action: shareSearchToTwitter },
+                  ].map(({ icon, label, action, active }) => (
+                    <button
+                      key={label}
+                      onClick={action}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{ color: active ? "#22c55e" : "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                    >
+                      <span className="text-base w-5 text-center">{icon}</span>
+                      {label}
+                    </button>
+                  ))}
+                  {typeof navigator !== "undefined" && "share" in navigator && (
+                    <button
+                      onClick={systemShareSearch}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{ color: "var(--text-secondary)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                    >
+                      <span className="text-base w-5 text-center">📤</span>
+                      系统分享
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
