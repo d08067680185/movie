@@ -24,6 +24,7 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_rl_resource_id ON resource_links (resource_id)",
             "CREATE INDEX IF NOT EXISTS idx_rl_source_id ON resource_links (source_id)",
             "CREATE INDEX IF NOT EXISTS idx_rl_is_valid ON resource_links (is_valid)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_rl_resource_url ON resource_links (resource_id, url)",
             "CREATE INDEX IF NOT EXISTS idx_r_category_rating ON resources (category, rating DESC)",
             "CREATE INDEX IF NOT EXISTS idx_r_year ON resources (year DESC)",
             "CREATE INDEX IF NOT EXISTS idx_sl_count ON search_logs (count DESC)",

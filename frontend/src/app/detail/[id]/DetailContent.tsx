@@ -208,12 +208,6 @@ export default function DetailContent({ id }: Props) {
 
             {/* 元数据 */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5 text-sm">
-              {resource.genre && (
-                <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
-                  <span style={{ color: "var(--text-muted)" }}>类型:</span>
-                  {resource.genre}
-                </div>
-              )}
               {resource.country && (
                 <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                   <Globe size={14} style={{ color: "var(--text-muted)" }} />
@@ -234,17 +228,59 @@ export default function DetailContent({ id }: Props) {
               )}
             </div>
 
-            {/* 导演/演员 */}
+            {/* 导演/演员 — 可点击跳搜索 */}
             {resource.directors && resource.directors.length > 0 && (
-              <div className="mb-2 text-sm">
-                <span style={{ color: "var(--text-muted)" }}>导演: </span>
-                <span style={{ color: "var(--text-secondary)" }}>{resource.directors.join(" / ")}</span>
+              <div className="mb-2 text-sm flex flex-wrap items-center gap-1">
+                <span className="shrink-0" style={{ color: "var(--text-muted)" }}>导演: </span>
+                {resource.directors.map((d, i) => (
+                  <span key={d}>
+                    {i > 0 && <span style={{ color: "var(--text-muted)" }}> / </span>}
+                    <a href={`/search?q=${encodeURIComponent(d)}`} className="transition-colors hover:text-white" style={{ color: "var(--text-secondary)" }}>{d}</a>
+                  </span>
+                ))}
               </div>
             )}
             {resource.actors && resource.actors.length > 0 && (
-              <div className="mb-4 text-sm">
-                <span style={{ color: "var(--text-muted)" }}>主演: </span>
-                <span style={{ color: "var(--text-secondary)" }}>{resource.actors.slice(0, 6).join(" / ")}</span>
+              <div className="mb-3 text-sm flex flex-wrap items-center gap-1">
+                <span className="shrink-0" style={{ color: "var(--text-muted)" }}>主演: </span>
+                {resource.actors.slice(0, 6).map((a, i) => (
+                  <span key={a}>
+                    {i > 0 && <span style={{ color: "var(--text-muted)" }}> / </span>}
+                    <a href={`/search?q=${encodeURIComponent(a)}`} className="transition-colors hover:text-white" style={{ color: "var(--text-secondary)" }}>{a}</a>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* 类型 badge — 可点击过滤 */}
+            {resource.genre && (
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {resource.genre.split(/[/，,、]/).map((g) => g.trim()).filter(Boolean).map((g) => (
+                  <a
+                    key={g}
+                    href={`/search?genre=${encodeURIComponent(g)}`}
+                    className="text-xs px-2 py-0.5 rounded-full transition-all hover:text-white"
+                    style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                  >
+                    {g}
+                  </a>
+                ))}
+              </div>
+            )}
+
+            {/* Tags */}
+            {resource.tags && resource.tags.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mb-3">
+                {resource.tags.map((tag) => (
+                  <a
+                    key={tag}
+                    href={`/search?q=${encodeURIComponent(tag)}`}
+                    className="text-xs px-2 py-0.5 rounded-full transition-all hover:text-white"
+                    style={{ background: "rgba(229,9,20,0.08)", border: "1px solid rgba(229,9,20,0.2)", color: "#ff6070" }}
+                  >
+                    # {tag}
+                  </a>
+                ))}
               </div>
             )}
 

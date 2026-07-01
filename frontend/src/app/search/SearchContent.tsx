@@ -130,6 +130,7 @@ export default function SearchContent() {
 
   // 有年份/类型/评分筛选时自动展开
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (activeYear || activeGenre || activeMinRating) setFiltersOpen(true);
   }, [activeYear, activeGenre, activeMinRating]);
 
@@ -217,13 +218,13 @@ export default function SearchContent() {
               onClick={() => setFiltersOpen(v => !v)}
               className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-all"
               style={{
-                ...(filtersOpen || activeYear || activeGenre
+                ...(filtersOpen || activeYear || activeGenre || activeMinRating
                   ? { background: "rgba(229,9,20,0.15)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)" }
                   : INACTIVE_BTN),
               }}
             >
               <SlidersHorizontal size={12} />
-              筛选{(activeYear || activeGenre) ? " ●" : ""}
+              筛选{(activeYear || activeGenre || activeMinRating) ? " ●" : ""}
             </button>
 
             {hasFilters && (

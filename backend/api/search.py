@@ -46,6 +46,8 @@ async def search(
                 Resource.title.ilike(kw),
                 Resource.title_en.ilike(kw),
                 Resource.original_title.ilike(kw),
+                Resource.directors.ilike(kw),
+                Resource.actors.ilike(kw),
                 Resource.synopsis.ilike(kw),
             )
         )
@@ -78,13 +80,14 @@ async def search(
 
     resources = (await db.execute(stmt)).scalars().all()
 
-    # 获取每个资源的链接数量
+    # 获取每个资源的有效链接数量
     resource_ids = [r.id for r in resources]
     link_counts = {}
     if resource_ids:
         link_count_stmt = (
             select(ResourceLink.resource_id, func.count(ResourceLink.id))
             .where(ResourceLink.resource_id.in_(resource_ids))
+            .where(ResourceLink.is_valid == True)
             .group_by(ResourceLink.resource_id)
         )
         for rid, cnt in (await db.execute(link_count_stmt)).all():
@@ -187,6 +190,7 @@ async def get_hot(db: AsyncSession = Depends(get_db)):
         link_count_stmt = (
             select(ResourceLink.resource_id, func.count(ResourceLink.id))
             .where(ResourceLink.resource_id.in_(resource_ids))
+            .where(ResourceLink.is_valid == True)
             .group_by(ResourceLink.resource_id)
         )
         for rid, cnt in (await db.execute(link_count_stmt)).all():
@@ -251,6 +255,7 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
         lc_stmt = (
             select(ResourceLink.resource_id, func.count(ResourceLink.id))
             .where(ResourceLink.resource_id.in_(resource_ids))
+            .where(ResourceLink.is_valid == True)
             .group_by(ResourceLink.resource_id)
         )
         for rid, cnt in (await db.execute(lc_stmt)).all():
@@ -331,6 +336,7 @@ async def get_related(resource_id: int, db: AsyncSession = Depends(get_db)):
         lc_stmt = (
             select(ResourceLink.resource_id, func.count(ResourceLink.id))
             .where(ResourceLink.resource_id.in_(resource_ids))
+            .where(ResourceLink.is_valid == True)
             .group_by(ResourceLink.resource_id)
         )
         for rid, cnt in (await db.execute(lc_stmt)).all():
