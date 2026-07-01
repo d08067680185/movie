@@ -1,15 +1,16 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Star, Clock, Globe, Download, Share2 } from "lucide-react";
+import { ArrowLeft, Star, Clock, Globe, Download, Share2, Heart } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import LinkItem from "@/components/LinkItem";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
 import { getResource, getRelated, ResourceCard, ResourceDetail } from "@/lib/api";
 import { CATEGORY_LABELS } from "@/lib/utils";
+import { toggleFavorite, isFavorited } from "@/lib/favorites";
 
 interface Props {
   id: number;
@@ -33,13 +34,79 @@ export default function DetailContent({ id }: Props) {
   const [notFound, setNotFound] = useState(false);
   const [related, setRelated] = useState<ResourceCard[]>([]);
   const [shareCopied, setShareCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareRef = useRef<HTMLDivElement>(null);
   const [synopsisExpanded, setSynopsisExpanded] = useState(false);
+  const [faved, setFaved] = useState(false);
 
-  function handleShare() {
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFaved(isFavorited(id));
+  }, [id]);
+
+  function handleFav() {
+    if (!resource) return;
+    const card = {
+      id: resource.id,
+      title: resource.title,
+      title_en: resource.title_en,
+      year: resource.year,
+      category: resource.category,
+      genre: resource.genre,
+      rating: resource.rating,
+      poster_url: resource.poster_url,
+      link_count: resource.links.length,
+      view_count: resource.view_count,
+    };
+    const result = toggleFavorite(card);
+    setFaved(result);
+  }
+
+  // 点击外部关闭分享面板
+  useEffect(() => {
+    if (!shareOpen) return;
+    function handler(e: MouseEvent) {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [shareOpen]);
+
+  function copyLink() {
     navigator.clipboard.writeText(window.location.href).then(() => {
       setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
+      setTimeout(() => { setShareCopied(false); setShareOpen(false); }, 1500);
     });
+  }
+
+  function shareToWeibo() {
+    const url = encodeURIComponent(window.location.href);
+    const title = encodeURIComponent(`${resource?.title} - 影视搜索`);
+    window.open(`https://service.weibo.com/share/share.php?url=${url}&title=${title}`, "_blank");
+    setShareOpen(false);
+  }
+
+  function shareToTelegram() {
+    const url = encodeURIComponent(window.location.href);
+    const text = encodeURIComponent(resource?.title || "");
+    window.open(`https://t.me/share/url?url=${url}&text=${text}`, "_blank");
+    setShareOpen(false);
+  }
+
+  function shareToTwitter() {
+    const url = encodeURIComponent(window.location.href);
+    const text = encodeURIComponent(`${resource?.title}${resource?.year ? ` (${resource.year})` : ""}`);
+    window.open(`https://twitter.com/intent/tweet?url=${url}&text=${text}`, "_blank");
+    setShareOpen(false);
+  }
+
+  async function systemShare() {
+    try {
+      await navigator.share({ title: resource?.title, text: resource?.synopsis?.slice(0, 100), url: window.location.href });
+    } catch { /* user cancelled */ }
+    setShareOpen(false);
   }
 
   useEffect(() => {
@@ -119,18 +186,75 @@ export default function DetailContent({ id }: Props) {
             <ArrowLeft size={16} />
             返回
           </button>
-          <button
-            onClick={handleShare}
-            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
-            style={{
-              background: shareCopied ? "rgba(34,197,94,0.15)" : "var(--bg-input)",
-              border: `1px solid ${shareCopied ? "rgba(34,197,94,0.3)" : "var(--border-input)"}`,
-              color: shareCopied ? "#22c55e" : "var(--text-secondary)",
-            }}
-          >
-            <Share2 size={13} />
-            {shareCopied ? "已复制链接 ✓" : "分享"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleFav}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
+              style={{
+                background: faved ? "rgba(229,9,20,0.15)" : "var(--bg-input)",
+                border: `1px solid ${faved ? "rgba(229,9,20,0.3)" : "var(--border-input)"}`,
+                color: faved ? "#ff6070" : "var(--text-secondary)",
+              }}
+            >
+              <Heart size={13} fill={faved ? "#ff6070" : "none"} />
+              {faved ? "已收藏" : "收藏"}
+            </button>
+            <div ref={shareRef} className="relative">
+              <button
+                onClick={() => setShareOpen((v) => !v)}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all"
+                style={{
+                  background: shareOpen ? "rgba(255,255,255,0.08)" : "var(--bg-input)",
+                  border: `1px solid ${shareOpen ? "rgba(255,255,255,0.15)" : "var(--border-input)"}`,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <Share2 size={13} />
+                分享
+              </button>
+
+              {shareOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1.5 w-44 rounded-xl z-50 overflow-hidden shadow-2xl"
+                  style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+                >
+                  {[
+                    { icon: "📋", label: shareCopied ? "已复制 ✓" : "复制链接", action: copyLink, active: shareCopied },
+                    { icon: "🌐", label: "微博", action: shareToWeibo },
+                    { icon: "✈️", label: "Telegram", action: shareToTelegram },
+                    { icon: "𝕏", label: "Twitter / X", action: shareToTwitter },
+                  ].map(({ icon, label, action, active }) => (
+                    <button
+                      key={label}
+                      onClick={action}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{
+                        color: active ? "#22c55e" : "var(--text-secondary)",
+                        borderBottom: "1px solid var(--border)",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                    >
+                      <span className="text-base w-5 text-center">{icon}</span>
+                      {label}
+                    </button>
+                  ))}
+                  {typeof navigator !== "undefined" && "share" in navigator && (
+                    <button
+                      onClick={systemShare}
+                      className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors text-left"
+                      style={{ color: "var(--text-secondary)" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(255,255,255,0.05)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                    >
+                      <span className="text-base w-5 text-center">📤</span>
+                      系统分享
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 主信息区 */}

@@ -1,8 +1,9 @@
 "use client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, FormEvent } from "react";
-import { Search, X, Sun, Moon, Menu } from "lucide-react";
+import { useState, useEffect, useRef, FormEvent } from "react";
+import { Search, X, Sun, Moon, Menu, Heart } from "lucide-react";
+import { getFavoritesCount } from "@/lib/favorites";
 
 const MOBILE_CATEGORIES = [
   { label: "🎬 电影", val: "movie" },
@@ -17,6 +18,8 @@ export default function Navbar() {
   const [q, setQ] = useState(searchParams.get("q") || "");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [favCount, setFavCount] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -32,6 +35,22 @@ export default function Navbar() {
         document.documentElement.setAttribute("data-theme", saved);
       }
     } catch {}
+    setFavCount(getFavoritesCount());
+  }, []);
+
+  // 按 / 聚焦搜索框，Esc 失去焦点
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        inputRef.current?.focus();
+      }
+      if (e.key === "Escape") {
+        inputRef.current?.blur();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
   function toggleTheme() {
@@ -96,10 +115,11 @@ export default function Navbar() {
           >
             <Search size={16} style={{ color: "var(--text-secondary)", flexShrink: 0 }} />
             <input
+              ref={inputRef}
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索电影、电视剧、动漫..."
+              placeholder="搜索电影、电视剧、动漫… (按 / 快速定位)"
               className="flex-1 bg-transparent outline-none text-sm"
               style={{ color: "var(--text-primary)" }}
             />
@@ -135,6 +155,23 @@ export default function Navbar() {
               {label}
             </Link>
           ))}
+
+          <Link
+            href="/favorites"
+            className="relative shrink-0 transition-colors"
+            style={{ color: favCount > 0 ? "#e50914" : "var(--text-secondary)" }}
+            title={`收藏夹 (${favCount})`}
+          >
+            <Heart size={16} fill={favCount > 0 ? "#e50914" : "none"} />
+            {favCount > 0 && (
+              <span
+                className="absolute -top-1.5 -right-1.5 text-[9px] font-bold w-3.5 h-3.5 flex items-center justify-center rounded-full"
+                style={{ background: "#e50914", color: "#fff" }}
+              >
+                {favCount > 9 ? "9+" : favCount}
+              </span>
+            )}
+          </Link>
 
           <button
             onClick={toggleTheme}

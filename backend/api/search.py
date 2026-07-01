@@ -84,7 +84,19 @@ async def search(
     total = (await db.execute(count_stmt)).scalar()
 
     order_cols = _ORDER_MAP.get(sort, _ORDER_MAP["popular"])
-    stmt = stmt.order_by(*order_cols)
+    # 有搜索词时：精确标题匹配排在最前面
+    if q.strip():
+        from sqlalchemy import case
+        exact = q.strip()
+        relevance = case(
+            (Resource.title == exact, 0),
+            (Resource.title.ilike(exact), 1),
+            (Resource.title.ilike(f"{exact}%"), 2),
+            else_=3,
+        )
+        stmt = stmt.order_by(relevance, *order_cols)
+    else:
+        stmt = stmt.order_by(*order_cols)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
 
     resources = (await db.execute(stmt)).scalars().all()

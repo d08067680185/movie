@@ -75,6 +75,10 @@ export default function AdminPage() {
   const [resCategory, setResCategory] = useState("");
   const [resPage, setResPage] = useState(1);
   const [resData, setResData] = useState<{ total: number; items: ResourceDetail[] } | null>(null);
+  const [resNoPoster, setResNoPoster] = useState(false);
+  const [resNoLinks, setResNoLinks] = useState(false);
+  const [searchLogs, setSearchLogs] = useState<{ keyword: string; count: number; last_searched: string | null }[]>([]);
+  const [logsLoaded, setLogsLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [addLinkForm, setAddLinkForm] = useState<{ resource_id: number; url: string; link_type: string; password: string } | null>(null);
   const [bgmRunning, setBgmRunning] = useState(false);
@@ -251,12 +255,22 @@ export default function AdminPage() {
     }
   }
 
-  async function loadResources(q = resSearch, page = resPage, cat = resCategory) {
+  async function loadResources(q = resSearch, page = resPage, cat = resCategory, noPoster = resNoPoster, noLinks = resNoLinks) {
     const sp = new URLSearchParams({ page: String(page), page_size: "15" });
     if (q) sp.set("q", q);
     if (cat) sp.set("category", cat);
+    if (noPoster) sp.set("no_poster", "true");
+    if (noLinks) sp.set("no_links", "true");
     const resp = await apiFetch(`/api/admin/resources?${sp}`, {}, token);
     if (resp.ok) setResData(await resp.json());
+  }
+
+  async function loadSearchLogs() {
+    const resp = await apiFetch("/api/admin/search-logs?limit=50", {}, token);
+    if (resp.ok) {
+      setSearchLogs(await resp.json());
+      setLogsLoaded(true);
+    }
   }
 
   async function deleteLink(linkId: number) {
@@ -1394,7 +1408,7 @@ export default function AdminPage() {
             <h2 className="text-lg font-bold">资源链接管理</h2>
             <span className="text-xs" style={{ color: "#606070" }}>可搜索影片、查看/添加/删除下载链接</span>
           </div>
-          <div className="flex gap-2 mb-4 flex-wrap">
+          <div className="flex gap-2 mb-3 flex-wrap">
             <input value={resSearch} onChange={e => setResSearch(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { setResPage(1); loadResources(resSearch, 1, resCategory); } }}
               placeholder="搜索影片名称..." className="flex-1 min-w-36 px-3 py-2 rounded outline-none text-sm"
@@ -1411,6 +1425,22 @@ export default function AdminPage() {
             <button onClick={() => { setResPage(1); loadResources(resSearch, 1, resCategory); }}
               className="px-4 py-2 rounded text-sm font-semibold text-white"
               style={{ background: "#e50914" }}>搜索</button>
+          </div>
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => { const v = !resNoPoster; setResNoPoster(v); setResPage(1); loadResources(resSearch, 1, resCategory, v, resNoLinks); }}
+              className="px-3 py-1.5 rounded text-xs font-medium transition-all"
+              style={resNoPoster ? { background: "#e50914", color: "#fff" } : { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa" }}
+            >
+              无封面
+            </button>
+            <button
+              onClick={() => { const v = !resNoLinks; setResNoLinks(v); setResPage(1); loadResources(resSearch, 1, resCategory, resNoPoster, v); }}
+              className="px-3 py-1.5 rounded text-xs font-medium transition-all"
+              style={resNoLinks ? { background: "#e50914", color: "#fff" } : { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "#aaa" }}
+            >
+              无有效链接
+            </button>
           </div>
 
           {resData && (
@@ -1820,6 +1850,40 @@ export default function AdminPage() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* ══ 搜索热词统计 ══ */}
+      <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-bold">搜索热词统计</h2>
+          <button
+            onClick={loadSearchLogs}
+            className="px-4 py-2 rounded text-sm font-semibold text-white"
+            style={{ background: "#e50914" }}
+          >
+            {logsLoaded ? "刷新" : "加载"}
+          </button>
+        </div>
+        {logsLoaded && (
+          <div className="space-y-1.5">
+            {searchLogs.length === 0 ? (
+              <p className="text-sm" style={{ color: "#606070" }}>暂无搜索日志</p>
+            ) : (
+              searchLogs.map((log, i) => (
+                <div key={log.keyword} className="flex items-center gap-3 px-3 py-2 rounded" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <span className="text-xs w-5 text-center font-bold" style={{ color: i < 3 ? "#e50914" : "#606070" }}>
+                    {i + 1}
+                  </span>
+                  <span className="flex-1 text-sm" style={{ color: "#f0f0f5" }}>{log.keyword}</span>
+                  <span className="text-sm font-semibold" style={{ color: "#e50914" }}>{log.count}</span>
+                  <span className="text-xs" style={{ color: "#606070" }}>
+                    {log.last_searched ? new Date(log.last_searched).toLocaleDateString("zh-CN") : ""}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
 
       {/* 消息提示 */}

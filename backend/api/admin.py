@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
-from models import Source, SpiderLog, Resource, ResourceLink
+from models import Source, SpiderLog, Resource, ResourceLink, SearchLog
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
@@ -146,17 +146,27 @@ async def create_link(data: LinkCreate, db: AsyncSession = Depends(get_db), _=De
 async def list_resources(
     q: Optional[str] = None,
     category: Optional[str] = None,
+    no_poster: Optional[bool] = None,
+    no_links: Optional[bool] = None,
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
     _=Depends(verify_admin),
 ):
-    from sqlalchemy import func
+    from sqlalchemy import func, exists
     stmt = select(Resource)
     if q:
         stmt = stmt.where(Resource.title.contains(q))
     if category:
         stmt = stmt.where(Resource.category == category)
+    if no_poster:
+        stmt = stmt.where(Resource.poster_url == None)
+    if no_links:
+        stmt = stmt.where(
+            ~exists().where(
+                (ResourceLink.resource_id == Resource.id) & (ResourceLink.is_valid == True)
+            )
+        )
     total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar()
     stmt = (stmt.options(selectinload(Resource.links))
                 .order_by(Resource.id.desc())
@@ -165,14 +175,30 @@ async def list_resources(
     items = (await db.execute(stmt)).scalars().all()
     result = []
     for r in items:
+        valid_count = sum(1 for l in r.links if l.is_valid)
         result.append({
             "id": r.id, "title": r.title, "year": r.year,
             "category": r.category, "poster_url": r.poster_url,
-            "rating": r.rating, "link_count": len(r.links),
+            "rating": r.rating, "link_count": valid_count,
             "links": [{"id": l.id, "url": l.url, "link_type": l.link_type,
                         "password": l.password, "quality": l.quality, "is_valid": l.is_valid} for l in r.links]
         })
     return {"total": total, "page": page, "page_size": page_size, "items": result}
+
+
+@router.get("/search-logs")
+async def get_search_logs(
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    result = await db.execute(
+        select(SearchLog).order_by(SearchLog.count.desc()).limit(limit)
+    )
+    logs = result.scalars().all()
+    return [{"keyword": l.keyword, "count": l.count,
+             "last_searched": l.last_searched.isoformat() if l.last_searched else None}
+            for l in logs]
 
 
 @router.patch("/links/{link_id}")

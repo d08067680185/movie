@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { Star, Link2, Eye } from "lucide-react";
+import { Star, Link2, Eye, Heart } from "lucide-react";
 import { ResourceCard as ResourceCardType } from "@/lib/api";
 import { CATEGORY_LABELS as CAT_LABELS } from "@/lib/utils";
+import { toggleFavorite, isFavorited } from "@/lib/favorites";
 
 interface Props {
   resource: ResourceCardType;
@@ -19,6 +20,19 @@ const BADGE_CLASS: Record<string, string> = {
 
 export default function ResourceCard({ resource }: Props) {
   const [imgError, setImgError] = useState(false);
+  const [faved, setFaved] = useState(false);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFaved(isFavorited(resource.id));
+  }, [resource.id]);
+
+  const handleFav = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const result = toggleFavorite(resource);
+    setFaved(result);
+  }, [resource]);
 
   return (
     <Link href={`/detail/${resource.id}`} className="block resource-card">
@@ -74,6 +88,20 @@ export default function ResourceCard({ resource }: Props) {
               {CAT_LABELS[resource.category] || resource.category}
             </div>
           )}
+
+          {/* 收藏按钮 */}
+          <button
+            onClick={handleFav}
+            className="absolute bottom-2 right-2 p-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-200"
+            style={{
+              background: faved ? "rgba(229,9,20,0.85)" : "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(4px)",
+              ...(faved ? { opacity: 1 } : {}),
+            }}
+            title={faved ? "取消收藏" : "收藏"}
+          >
+            <Heart size={12} fill={faved ? "#fff" : "none"} color="#fff" />
+          </button>
 
           {/* 悬停渐变遮罩 */}
           <div
