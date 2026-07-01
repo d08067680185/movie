@@ -32,6 +32,7 @@ async def search(
     year: Optional[int] = None,
     genre: Optional[str] = None,
     min_rating: Optional[float] = None,
+    has_links: Optional[bool] = None,
     sort: str = Query("popular", description="popular|rating|newest|latest"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=50),
@@ -70,6 +71,14 @@ async def search(
 
     if min_rating is not None:
         stmt = stmt.where(Resource.rating >= min_rating)
+
+    if has_links is True:
+        from sqlalchemy import exists
+        stmt = stmt.where(
+            exists().where(
+                (ResourceLink.resource_id == Resource.id) & (ResourceLink.is_valid == True)
+            )
+        )
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total = (await db.execute(count_stmt)).scalar()
@@ -169,6 +178,7 @@ async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db)):
         directors=resource.directors or [],
         actors=resource.actors or [],
         view_count=resource.view_count,
+        imdb_id=resource.imdb_id,
         links=links,
         tags=[t.name for t in resource.tags],
     )

@@ -45,6 +45,7 @@ export interface ResourceDetail {
   directors?: string[];
   actors?: string[];
   view_count: number;
+  imdb_id?: string;
   links: ResourceLink[];
   tags: string[];
 }
@@ -79,6 +80,7 @@ export async function searchResources(params: {
   year?: number;
   genre?: string;
   min_rating?: number;
+  has_links?: boolean;
   sort?: string;
   page?: number;
   page_size?: number;
@@ -89,6 +91,7 @@ export async function searchResources(params: {
   if (params.year) sp.set("year", String(params.year));
   if (params.genre) sp.set("genre", params.genre);
   if (params.min_rating) sp.set("min_rating", String(params.min_rating));
+  if (params.has_links) sp.set("has_links", "true");
   if (params.sort && params.sort !== "popular") sp.set("sort", params.sort);
   if (params.page) sp.set("page", String(params.page));
   if (params.page_size) sp.set("page_size", String(params.page_size));

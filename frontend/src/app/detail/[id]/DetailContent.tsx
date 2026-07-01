@@ -207,7 +207,7 @@ export default function DetailContent({ id }: Props) {
             )}
 
             {/* 元数据 */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-4 text-sm">
               {resource.country && (
                 <div className="flex items-center gap-2" style={{ color: "var(--text-secondary)" }}>
                   <Globe size={14} style={{ color: "var(--text-muted)" }} />
@@ -227,6 +227,22 @@ export default function DetailContent({ id }: Props) {
                 </div>
               )}
             </div>
+
+            {/* 外部链接 */}
+            {resource.imdb_id && (
+              <div className="flex flex-wrap gap-2 mb-4">
+                <a
+                  href={`https://www.imdb.com/title/${resource.imdb_id}/`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all hover:brightness-110"
+                  style={{ background: "#f5c518", color: "#000" }}
+                >
+                  <span>IMDb</span>
+                  <span style={{ opacity: 0.7 }}>↗</span>
+                </a>
+              </div>
+            )}
 
             {/* 导演/演员 — 可点击跳搜索 */}
             {resource.directors && resource.directors.length > 0 && (

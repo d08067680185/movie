@@ -81,12 +81,14 @@ export default function SearchContent() {
     const year = searchParams.get("year");
     const genre = searchParams.get("genre") || undefined;
     const minRating = searchParams.get("min_rating");
+    const hasLinksParam = searchParams.get("has_links") === "true";
     searchResources({
       q,
       category: category || undefined,
       year: year ? parseInt(year) : undefined,
       genre,
       min_rating: minRating ? parseFloat(minRating) : undefined,
+      has_links: hasLinksParam || undefined,
       sort,
       page,
       page_size: 24,
@@ -122,17 +124,18 @@ export default function SearchContent() {
   const activeYear = searchParams.get("year");
   const activeGenre = searchParams.get("genre") || "";
   const activeMinRating = searchParams.get("min_rating") || "";
-  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeMinRating);
+  const activeHasLinks = searchParams.get("has_links") === "true";
+  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeMinRating || activeHasLinks);
   const [jumpInput, setJumpInput] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   const GENRE_OPTIONS = ["动作", "爱情", "喜剧", "科幻", "恐怖", "悬疑", "动画", "奇幻", "历史", "犯罪", "剧情"];
 
-  // 有年份/类型/评分筛选时自动展开
+  // 有年份/类型/评分/链接筛选时自动展开
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (activeYear || activeGenre || activeMinRating) setFiltersOpen(true);
-  }, [activeYear, activeGenre, activeMinRating]);
+    if (activeYear || activeGenre || activeMinRating || activeHasLinks) setFiltersOpen(true);
+  }, [activeYear, activeGenre, activeMinRating, activeHasLinks]);
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -218,13 +221,13 @@ export default function SearchContent() {
               onClick={() => setFiltersOpen(v => !v)}
               className="sm:hidden flex items-center gap-1 px-2.5 py-1.5 rounded text-xs transition-all"
               style={{
-                ...(filtersOpen || activeYear || activeGenre || activeMinRating
+                ...(filtersOpen || activeYear || activeGenre || activeMinRating || activeHasLinks
                   ? { background: "rgba(229,9,20,0.15)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)" }
                   : INACTIVE_BTN),
               }}
             >
               <SlidersHorizontal size={12} />
-              筛选{(activeYear || activeGenre || activeMinRating) ? " ●" : ""}
+              筛选{(activeYear || activeGenre || activeMinRating || activeHasLinks) ? " ●" : ""}
             </button>
 
             {hasFilters && (
@@ -272,7 +275,7 @@ export default function SearchContent() {
             ))}
           </div>
 
-          {/* 评分筛选 */}
+          {/* 评分 + 有资源筛选 */}
           <div className="flex flex-wrap items-center gap-1.5 mb-4 sm:mb-6">
             <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>评分:</span>
             {[
@@ -290,6 +293,14 @@ export default function SearchContent() {
                 {r.label}
               </button>
             ))}
+            <div className="w-px h-4 mx-0.5 shrink-0" style={{ background: "var(--border)" }} />
+            <button
+              onClick={() => updateSearch({ has_links: activeHasLinks ? "" : "true" })}
+              className="flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all"
+              style={activeHasLinks ? { background: "rgba(52,211,153,0.15)", color: "#34d399", border: "1px solid rgba(52,211,153,0.3)" } : INACTIVE_BTN}
+            >
+              🔗 仅看有资源
+            </button>
           </div>
         </div>
 

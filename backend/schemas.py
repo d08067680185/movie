@@ -54,6 +54,7 @@ class ResourceDetailOut(BaseModel):
     directors: Optional[List[str]]
     actors: Optional[List[str]]
     view_count: int
+    imdb_id: Optional[str] = None
     links: List[ResourceLinkOut] = []
     tags: List[str] = []
 
