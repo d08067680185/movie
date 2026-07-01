@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-### Backend (FastAPI + Python 3.14)
+### Backend (FastAPI + Python)
 ```bash
 cd backend
 
@@ -13,6 +13,9 @@ venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 # Install dependencies
 python3 -m venv venv && venv/bin/pip install -r requirements.txt
+
+# Syntax-check all backend files at once
+venv/bin/python -c "import ast,sys; [ast.parse(open(f).read()) or print('✓',f) for f in ['tasks.py','utils.py','config.py','main.py','api/admin.py','api/search.py','spiders/scheduler.py']]"
 
 # One-shot DB check
 venv/bin/python3 -c "
@@ -40,7 +43,12 @@ npm run build
 npm run lint
 ```
 
-### Start/stop both
+### Docker deployment (Mac mini via Tailscale 100.85.130.18)
+```bash
+ssh xiaofengdai@100.85.130.18 "cd ~/Documents/claude/movie && git pull && /usr/local/bin/docker compose build --no-cache && /usr/local/bin/docker compose up -d"
+```
+
+### Start/stop (local dev without Docker)
 ```bash
 bash start.sh     # nohup, logs to /tmp/movie-search-*.log
 bash stop.sh
@@ -48,23 +56,36 @@ bash stop.sh
 
 ## Critical: Category Values
 
-**The DB stores Chinese category values** ("电影", "电视剧", "动漫", "综艺"), not English.
+**The DB stores Chinese values** — never store English values in `Resource.category`.
 
-- URL params and spider `ResourceItem.category` use English ("movie", "tv", "anime", "variety")
-- `CATEGORY_MAP` in `api/search.py` translates URL params → DB values at query time
-- `_CAT_NORM` in `spiders/scheduler.py` translates spider output → DB values at write time
-- `batch-import` in `api/admin.py` also applies normalization before writing
-- `CATEGORY_LABELS` and `CATEGORY_COLORS` in `frontend/src/lib/utils.ts` carry **both** English and Chinese keys so they work regardless of source
+| DB value | URL param / spider output |
+|----------|--------------------------|
+| `电影` | `movie` |
+| `电视剧` | `tv` |
+| `动漫` | `anime` |
+| `经典资源` | `variety` |
 
-Any new code querying or writing `Resource.category` must respect this. Adding a new path that stores English values will silently break search filters and category badges.
+The single source of truth is **`backend/config.py:CATEGORY_MAP`** (dict mapping English→Chinese). All three translation points import from it:
+- `api/search.py` — translates URL `category=` param at query time
+- `spiders/scheduler.py` — translates spider `ResourceItem.category` at write time
+- `api/admin.py` — translates `batch-import` and `create_resource` payloads
+
+`frontend/src/lib/utils.ts:CATEGORY_LABELS` carries both English and Chinese keys so components work regardless of source.
+
+## Critical: `NEXT_PUBLIC_API_URL` Must Use `??` Not `||`
+
+Docker sets `NEXT_PUBLIC_API_URL=""` (empty string) as a build arg. Empty string is falsy, so `|| "http://localhost:8000"` would silently override it and break the Nginx proxy. Always use:
+```typescript
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
+```
 
 ## Architecture
 
 ### Data flow
 ```
-User search → Next.js → GET /api/search?q=&category=anime&sort=rating → FastAPI
-  → CATEGORY_MAP translates "anime"→"动漫" → SQLite query → ResourceCard[]
-Detail page → GET /api/resource/{id} → increments view_count, returns ResourceDetail with links
+Browser → Nginx (movie.mxzshs.com) → /api/* → FastAPI :8000
+                                    → /*     → Next.js :3000
+Docker internal: frontend container calls backend via http://backend:8000
 ```
 
 ### Backend structure
@@ -76,53 +97,59 @@ Detail page → GET /api/resource/{id} → increments view_count, returns Resour
 - `SpiderLog` — per-run log (status: running/success/failed)
 - `SearchLog` — hot-search counter, upserted on every non-empty search hit
 
-**`api/search.py`** — public router (`/api`):
-- `GET /search` — supports `q`, `category` (English), `year`, `genre` (ilike substring), `sort` (popular/rating/newest/latest), `page`
-- `GET /stats` — 60s in-memory cache (`_stats_cache` module global); safe for single-worker uvicorn only
-- `_ORDER_MAP` — module-level dict mapping sort param → SQLAlchemy `order_by()` columns
+**`tasks.py`** — in-memory background task registry. `start_task(id, name)` / `update_task(id, done, message)` / `finish_task(id, status, message)`. Used by spider scheduler and check-links to report progress visible in the admin panel. Tasks are cleared after 1 hour.
 
-**`api/admin.py`** — protected by `X-Admin-Token` header (default `admin123`):
-- Batch import: dedup by title + year using `scalars().first()` (not `scalar_one_or_none()`, which raises on multiple matches)
-- Delete resource: explicitly deletes `ResourceLink` rows first, then `Resource` (cascade not reliable via async execute)
-- `invalidate_link` sets `is_valid=False`; `update_link` (PATCH) does NOT touch `is_valid`
+**`utils.py`** — two utilities:
+- `send_telegram(message)` — posts to Telegram Bot API using `settings.TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`; no-ops silently if unconfigured
+- `backup_db(db_path)` → copies SQLite DB to `backups/movie_search_<timestamp>.db`
+
+**`api/search.py`** — public router (`/api`):
+- `GET /search` — supports `q`, `category` (English), `year`, `genre` (ilike), `sort` (popular/rating/newest/latest), `page`
+- `GET /stats` — 60s in-memory cache (`_stats_cache` global); safe for single-worker only
+
+**`api/admin.py`** — protected by `X-Admin-Token` header:
+- Batch import: dedup by title + year using `scalars().first()` (not `scalar_one_or_none()`)
+- Delete resource: explicitly deletes `ResourceLink` rows first (cascade not reliable via async execute)
+- Background tasks (`check-links`, `bangumi-enrich`, `pan-search`) use `asyncio.create_task()` — they get their **own** `AsyncSessionLocal` sessions; never reuse the request's `db` session in a background coroutine
+- `GET /tasks` — returns `task_registry.get_tasks()` for admin progress polling
+- `GET /duplicates` — raw SQL GROUP BY title+year HAVING count > 1
+- `POST /resources/{keep_id}/merge/{dup_id}` — moves links, patches metadata, deletes duplicate
+- `POST /check-links` — HEAD requests on `pan_*` links; marks 404/403/410 as `is_valid=False`
+- `POST /backup` + `GET /backups` — manual DB backup and listing
+- `POST /telegram-config` + `GET /telegram-status` — runtime Telegram configuration
 
 **Spider system (`spiders/`)**:
 - `SPIDER_REGISTRY` in `__init__.py` — maps `spider_class` string → class; register new spiders here
-- `scheduler.py` — `run_spider(source_id)` upserts results; dedup by title+year then by tmdb_id; always normalizes category via `_CAT_NORM`
+- `scheduler.py` — `run_spider(source_id)` writes task progress to `tasks.py` and sends Telegram on failure
 - `sources/bangumi.py` — NOT in SPIDER_REGISTRY; called via `POST /api/admin/bangumi-enrich`; queries `Resource.category == "动漫"` (Chinese)
 
-**DB**: `init_db()` runs `create_all` + `CREATE INDEX IF NOT EXISTS` on startup. Schema changes are additive only — no migration framework.
+**`config.py`** — `Settings` (pydantic-settings, reads `.env`). Key vars: `TMDB_API_KEY`, `ADMIN_PASSWORD`, `CORS_ORIGINS` (comma-separated), `SPIDER_INTERVAL_HOURS`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
 
-**Config** (`config.py`): `.env` file. Key vars: `TMDB_API_KEY`, `ADMIN_PASSWORD`, `CORS_ORIGINS` (comma-separated), `SPIDER_INTERVAL_HOURS`.
+**DB**: `init_db()` runs `create_all` + `CREATE INDEX IF NOT EXISTS` on startup. Schema changes are additive only — no migration framework. Historical category cleanup SQL also runs in `init_db`.
+
+**APScheduler jobs** (registered in `main.py`):
+- `crawl_all` — runs `run_all_spiders()` every `SPIDER_INTERVAL_HOURS`
+- `daily_backup` — runs `backup_db()` at 03:00 daily
 
 ### Frontend structure
 
 **Pages** (App Router, `src/app/`):
-- `/` → `HomeContent.tsx` — hero search + category cards + hot resources grid
-- `/search` → `SearchContent.tsx` — search results with category/year/sort filters; `page.tsx` adds `generateMetadata`
-- `/detail/[id]` → `DetailContent.tsx` — resource detail + grouped download links + related; `page.tsx` adds `generateMetadata` via SSR fetch
-- `/admin` — single-file admin panel, no sub-components
+- `/` → `HomeContent.tsx` — hero search + category cards + hot/latest resource grids
+- `/search` → `SearchContent.tsx` — filters (category/year/genre/sort) + results grid + search history (localStorage, max 10)
+- `/detail/[id]` → `DetailContent.tsx` — detail + grouped download links + related
+- `/admin` — single-file admin panel (no sub-components); always dark theme regardless of user preference
 
 Next.js 16: `params` must be unwrapped with `use(params)` in server components, not destructured directly.
 
-**`src/lib/api.ts`** — all fetch calls. `API_BASE` from `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`). `searchResources()` accepts `sort` and `genre` params.
+**`src/lib/api.ts`** — all public fetch calls. `API_BASE = process.env.NEXT_PUBLIC_API_URL ?? ""`.
 
 **`src/lib/utils.ts`** — shared constants: `CATEGORY_LABELS` (both English + Chinese keys), `LINK_TYPE_LABELS`, `QUALITY_COLORS`.
 
-**CSS**: dark theme via CSS custom properties (`--bg-primary`, `--bg-card`, `--accent: #e50914`). Tailwind 4 (`@import "tailwindcss"`). Inline styles co-exist with Tailwind — intentional for card/panel backgrounds.
+**CSS**: dark/light theme via CSS custom properties (`--bg-primary`, `--bg-card`, `--accent: #e50914`). Tailwind 4 (`@import "tailwindcss"`). Inline styles co-exist with Tailwind for card/panel backgrounds — intentional.
 
 ### Key frontend patterns
 
-- **`useEffect` deps in search page**: depend only on `searchParams`, not on derived values (`q`, `category`, etc.) extracted from it — they change in the same render tick anyway and would cause redundant calls.
-- **Hover zoom on images**: requires `group` on the container div and `group-hover:scale-105` on the `<Image>`. The `resource-card` CSS class does not provide `group`.
-- **`CATEGORY_COLORS`** in `ResourceCard.tsx` uses Chinese keys to match DB values directly.
-- **Navbar `q` state**: synced via `useEffect([searchParams])` so it updates when navigating via hot-searches or footer links.
-
-### Admin panel features
-- Bangumi metadata enrichment (poster/rating/synopsis from bgm.tv, free, no key)
-- Batch import via JSON array (`POST /api/admin/batch-import`)
-- Resource list with per-resource link management (expandable rows, add/delete/invalidate links)
-- Data source CRUD + manual spider trigger
-
-### Link types
-`pan_quark`, `pan_baidu`, `pan_aliyun`, `magnet`, `direct`, `page` — stored in `ResourceLink.link_type`. Baidu extraction code in `ResourceLink.password`. All link types show both a copy button and an open button (including `magnet:` URLs which the OS handles).
+- **`useEffect` deps in search page**: depend only on `searchParams`, not on derived `q`/`category` — they change in the same tick and would cause redundant calls.
+- **Hover zoom**: requires `group` on container + `group-hover:scale-[1.08]` on `<Image>`. The `.resource-card` CSS class does not add `group`.
+- **Admin task polling**: `hasRunningTasks = tasks.some(t => t.status === "running")` drives a `setInterval(loadTasks, 3000)` via `useEffect([hasRunningTasks])`.
+- **Background tasks in admin.py**: always create a new `AsyncSessionLocal` inside the coroutine — the FastAPI-injected `db` session is closed by the time the background task runs.
