@@ -74,9 +74,9 @@ async def trigger_spider(source_id: int, db: AsyncSession = Depends(get_db), _=D
 
 
 @router.get("/logs", response_model=list[SpiderLogOut])
-async def list_logs(limit: int = 20, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+async def list_logs(limit: int = 20, offset: int = 0, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
     result = await db.execute(
-        select(SpiderLog).order_by(SpiderLog.started_at.desc()).limit(limit)
+        select(SpiderLog).order_by(SpiderLog.started_at.desc()).limit(limit).offset(offset)
     )
     return result.scalars().all()
 

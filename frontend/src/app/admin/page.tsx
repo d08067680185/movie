@@ -63,6 +63,8 @@ export default function AdminPage() {
   const [authed, setAuthed] = useState(false);
   const [sources, setSources] = useState<Source[]>([]);
   const [logs, setLogs] = useState<Log[]>([]);
+  const [logsOffset, setLogsOffset] = useState(0);
+  const [logsLoadingMore, setLogsLoadingMore] = useState(false);
   const [spiderClasses, setSpiderClasses] = useState<string[]>([]);
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [statsDetail, setStatsDetail] = useState<{ today_resources: number; today_links: number } | null>(null);
@@ -551,6 +553,17 @@ export default function AdminPage() {
       const data = await resp.json();
       setTmdbKeyConfigured(data.configured);
     }
+  }
+
+  async function loadMoreLogs() {
+    setLogsLoadingMore(true);
+    const resp = await apiFetch(`/api/admin/logs?offset=${logsOffset + 20}&limit=20`, {}, token);
+    if (resp.ok) {
+      const newLogs = await resp.json();
+      setLogs(prev => [...prev, ...newLogs]);
+      setLogsOffset(prev => prev + 20);
+    }
+    setLogsLoadingMore(false);
   }
 
   async function loadTasks() {
@@ -1968,6 +1981,19 @@ export default function AdminPage() {
                 </div>
               ))
             )}
+          </div>
+          {logs.length > 0 && (
+            <button
+              onClick={loadMoreLogs}
+              disabled={logsLoadingMore}
+              className="mt-3 px-4 py-2 rounded text-sm transition-all disabled:opacity-40"
+              style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}
+            >
+              {logsLoadingMore ? "加载中..." : "加载更多"}
+            </button>
+          )}
+        </div>
+
         {/* ══ 搜索热词统计 ══ */}
         <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
           <div className="flex items-center justify-between mb-4">
@@ -2000,8 +2026,6 @@ export default function AdminPage() {
               )}
             </div>
           )}
-        </div>
-          </div>
         </div>
       </div>
 
