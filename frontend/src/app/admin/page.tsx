@@ -19,7 +19,7 @@ interface LinkDetail {
 }
 interface ResourceDetail {
   id: number; title: string; year?: number; category?: string;
-  genre?: string; synopsis?: string;
+  genre?: string; synopsis?: string; country?: string;
   poster_url?: string; rating?: number; link_count: number; links: LinkDetail[];
 }
 
@@ -127,11 +127,11 @@ export default function AdminPage() {
   const [showTelegramForm, setShowTelegramForm] = useState(false);
   // 资源编辑
   const [editResId, setEditResId] = useState<number | null>(null);
-  const [editResForm, setEditResForm] = useState({ title: "", year: "", category: "电影", genre: "", synopsis: "", poster_url: "", rating: "" });
+  const [editResForm, setEditResForm] = useState({ title: "", year: "", category: "电影", genre: "", synopsis: "", country: "", poster_url: "", rating: "" });
   const [editResRunning, setEditResRunning] = useState(false);
   // 链接编辑
   const [editLinkId, setEditLinkId] = useState<number | null>(null);
-  const [editLinkForm, setEditLinkForm] = useState({ url: "", link_type: "magnet", quality: "", password: "", subtitle: "" });
+  const [editLinkForm, setEditLinkForm] = useState({ url: "", link_type: "magnet", quality: "", password: "", subtitle: "", format: "", size: "", episode_info: "" });
   const [editLinkRunning, setEditLinkRunning] = useState(false);
 
   // msg 5 秒后自动消除
@@ -311,6 +311,9 @@ export default function AdminPage() {
     if (editLinkForm.quality) body.quality = editLinkForm.quality;
     if (editLinkForm.password) body.password = editLinkForm.password;
     if (editLinkForm.subtitle) body.subtitle = editLinkForm.subtitle;
+    if (editLinkForm.format) body.format = editLinkForm.format;
+    if (editLinkForm.size) body.size = editLinkForm.size;
+    if (editLinkForm.episode_info) body.episode_info = editLinkForm.episode_info;
 
     const resp = await apiFetch(`/api/admin/links/${linkId}`, { method: "PATCH", body: JSON.stringify(body) }, token);
     setEditLinkRunning(false);
@@ -508,6 +511,7 @@ export default function AdminPage() {
     if (editResForm.category) body.category = editResForm.category;
     if (editResForm.genre) body.genre = editResForm.genre;
     if (editResForm.synopsis) body.synopsis = editResForm.synopsis;
+    if (editResForm.country) body.country = editResForm.country;
     if (editResForm.poster_url) body.poster_url = editResForm.poster_url;
     if (editResForm.rating) body.rating = parseFloat(editResForm.rating);
     const resp = await apiFetch(`/api/admin/resources/${editResId}`, { method: "PATCH", body: JSON.stringify(body) }, token);
@@ -1536,7 +1540,7 @@ export default function AdminPage() {
                       <button onClick={e => {
                         e.stopPropagation();
                         setEditResId(res.id);
-                        setEditResForm({ title: res.title, year: res.year ? String(res.year) : "", category: res.category || "电影", genre: res.genre || "", synopsis: res.synopsis || "", poster_url: res.poster_url || "", rating: res.rating ? String(res.rating) : "" });
+                        setEditResForm({ title: res.title, year: res.year ? String(res.year) : "", category: res.category || "电影", genre: res.genre || "", synopsis: res.synopsis || "", country: res.country || "", poster_url: res.poster_url || "", rating: res.rating ? String(res.rating) : "" });
                       }}
                         className="px-2 py-1 rounded text-xs"
                         style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.2)" }}>
@@ -1584,7 +1588,7 @@ export default function AdminPage() {
                               )}
                               <button onClick={() => {
                                 setEditLinkId(lk.id);
-                                setEditLinkForm({ url: lk.url, link_type: lk.link_type, quality: lk.quality || "", password: lk.password || "", subtitle: lk.subtitle || "" });
+                                setEditLinkForm({ url: lk.url, link_type: lk.link_type, quality: lk.quality || "", password: lk.password || "", subtitle: lk.subtitle || "", format: "", size: "", episode_info: lk.episode_info || "" });
                               }}
                                 className="text-xs px-2 py-0.5 rounded flex-shrink-0"
                                 style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>编辑</button>
@@ -1669,6 +1673,12 @@ export default function AdminPage() {
                   <input value={editResForm.genre} onChange={e => setEditResForm(f => ({ ...f, genre: e.target.value }))}
                     className="w-full px-3 py-2 rounded outline-none text-sm"
                     style={inputStyle} placeholder="动作/科幻/爱情" />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>国家/地区</label>
+                  <input value={editResForm.country} onChange={e => setEditResForm(f => ({ ...f, country: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={inputStyle} placeholder="中国/日本/美国" />
                 </div>
                 <div>
                   <label className="block text-xs mb-1" style={{ color: DARK.muted }}>封面图 URL</label>
@@ -1795,6 +1805,29 @@ export default function AdminPage() {
                     placeholder="如：中文, 英文"
                     className="w-full px-3 py-2 rounded outline-none text-sm"
                     style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "#606070" }}>格式（可选）</label>
+                    <input value={editLinkForm.format} onChange={e => setEditLinkForm(f => ({ ...f, format: e.target.value }))}
+                      placeholder="mkv, mp4..."
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "#606070" }}>文件大小（可选）</label>
+                    <input value={editLinkForm.size} onChange={e => setEditLinkForm(f => ({ ...f, size: e.target.value }))}
+                      placeholder="2.5GB..."
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1" style={{ color: "#606070" }}>集数（可选）</label>
+                    <input value={editLinkForm.episode_info} onChange={e => setEditLinkForm(f => ({ ...f, episode_info: e.target.value }))}
+                      placeholder="1-12..."
+                      className="w-full px-3 py-2 rounded outline-none text-sm"
+                      style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button type="submit" disabled={editLinkRunning}

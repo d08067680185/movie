@@ -179,10 +179,11 @@ async def list_resources(
         valid_count = sum(1 for l in r.links if l.is_valid)
         result.append({
             "id": r.id, "title": r.title, "year": r.year,
-            "category": r.category, "poster_url": r.poster_url,
-            "rating": r.rating, "link_count": valid_count,
+            "category": r.category, "genre": r.genre, "synopsis": r.synopsis, "country": r.country,
+            "poster_url": r.poster_url, "rating": r.rating, "link_count": valid_count,
             "links": [{"id": l.id, "url": l.url, "link_type": l.link_type,
-                        "password": l.password, "quality": l.quality, "is_valid": l.is_valid} for l in r.links]
+                        "password": l.password, "quality": l.quality, "is_valid": l.is_valid,
+                        "subtitle": l.subtitle, "episode_info": l.episode_info} for l in r.links]
         })
     return {"total": total, "page": page, "page_size": page_size, "items": result}
 
@@ -205,20 +206,17 @@ async def get_search_logs(
 @router.patch("/links/{link_id}")
 async def update_link(
     link_id: int,
-    url: Optional[str] = None,
-    link_type: Optional[str] = None,
-    password: Optional[str] = None,
-    quality: Optional[str] = None,
+    data: dict,
     db: AsyncSession = Depends(get_db),
     _=Depends(verify_admin),
 ):
     link = await db.get(ResourceLink, link_id)
     if not link:
         raise HTTPException(status_code=404)
-    if url is not None: link.url = url
-    if link_type is not None: link.link_type = link_type
-    if password is not None: link.password = password
-    if quality is not None: link.quality = quality
+    editable = ["url", "link_type", "quality", "password", "subtitle", "format", "size", "episode_info"]
+    for field in editable:
+        if field in data and data[field] is not None:
+            setattr(link, field, data[field])
     await db.commit()
     return {"message": "已更新"}
 
