@@ -11,12 +11,13 @@ from config import settings, CATEGORY_MAP as _CAT_NORM
 import tasks as task_registry
 from utils import backup_db, list_backups, send_telegram
 import asyncio
+import secrets
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def verify_admin(x_admin_token: Optional[str] = Header(None)):
-    if x_admin_token != settings.ADMIN_PASSWORD:
+    if not secrets.compare_digest(x_admin_token or "", settings.ADMIN_PASSWORD):
         raise HTTPException(status_code=401, detail="Unauthorized")
     return True
 
@@ -475,13 +476,12 @@ async def batch_import(
                 ))
                 existing_urls.add(lk.url)
                 links_added += 1
-
-            await db.commit()
         except Exception as e:
             await db.rollback()
             errors.append(f"{item.title}: {e}")
             skipped += 1
 
+    await db.commit()
     return BatchImportResult(created=created, updated=updated, links_added=links_added, skipped=skipped, errors=errors)
 
 

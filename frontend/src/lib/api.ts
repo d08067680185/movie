@@ -65,9 +65,18 @@ export interface Stats {
 }
 
 async function fetchApi<T>(path: string, cacheSeconds = 60): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { next: { revalidate: cacheSeconds } });
-  if (!res.ok) throw new Error(`API error: ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      next: { revalidate: cacheSeconds },
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function getResource(id: number): Promise<ResourceDetail> {

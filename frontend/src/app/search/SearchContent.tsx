@@ -64,6 +64,7 @@ export default function SearchContent() {
 
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
 
   useEffect(() => {
@@ -74,6 +75,7 @@ export default function SearchContent() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
+    setError(null);
     if (q) {
       saveToHistory(q);
       setHistory(readHistory());
@@ -94,6 +96,7 @@ export default function SearchContent() {
       page_size: 24,
     })
       .then(setResult)
+      .catch(() => setError("搜索失败，请稍后重试"))
       .finally(() => setLoading(false));
   }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -407,6 +410,21 @@ export default function SearchContent() {
                 <div className="skeleton h-3 mt-1 w-2/3 rounded" />
               </div>
             ))}
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="text-4xl mb-4">⚠️</div>
+            <p className="text-lg font-medium" style={{ color: "var(--text-primary)" }}>{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-6 px-6 py-2 rounded-lg text-sm font-medium transition-all"
+              style={{
+                background: "linear-gradient(135deg, #e50914 0%, #c40812 100%)",
+                color: "#fff",
+              }}
+            >
+              重新加载
+            </button>
           </div>
         ) : result && result.items.length > 0 ? (
           <>

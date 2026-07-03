@@ -25,14 +25,22 @@ export default function HomeContent() {
   const [hotKeywords, setHotKeywords] = useState<string[]>([]);
 
   useEffect(() => {
-    Promise.all([getHotResources(), getLatestResources(), getStats()])
+    setLoading(true);
+    setError(null);
+
+    // 并发但独立的三个请求，单个失败不影响整体
+    Promise.all([
+      getHotResources().catch(() => []),
+      getLatestResources().catch(() => []),
+      getStats().catch(() => null),
+    ])
       .then(([hot, latest, s]) => {
         setHotResources(hot);
         setLatestResources(latest);
         setStats(s);
       })
-      .catch(() => setError("加载失败，请刷新页面重试"))
       .finally(() => setLoading(false));
+
     getHotSearches().then((hs) => {
       if (hs.length > 0) setHotKeywords(hs.map((h) => h.keyword));
     });

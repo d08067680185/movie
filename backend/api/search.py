@@ -25,6 +25,22 @@ _stats_cache_ts: float = 0.0
 _STATS_TTL = 60.0
 
 
+async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
+    """批量获取资源的有效链接数量"""
+    if not resource_ids:
+        return {}
+    link_count_stmt = (
+        select(ResourceLink.resource_id, func.count(ResourceLink.id))
+        .where(ResourceLink.resource_id.in_(resource_ids))
+        .where(ResourceLink.is_valid == True)
+        .group_by(ResourceLink.resource_id)
+    )
+    link_counts = {}
+    for rid, cnt in (await db.execute(link_count_stmt)).all():
+        link_counts[rid] = cnt
+    return link_counts
+
+
 @router.get("/search", response_model=SearchResult)
 async def search(
     q: str = Query("", description="搜索关键词"),
@@ -101,18 +117,8 @@ async def search(
 
     resources = (await db.execute(stmt)).scalars().all()
 
-    # 获取每个资源的有效链接数量
     resource_ids = [r.id for r in resources]
-    link_counts = {}
-    if resource_ids:
-        link_count_stmt = (
-            select(ResourceLink.resource_id, func.count(ResourceLink.id))
-            .where(ResourceLink.resource_id.in_(resource_ids))
-            .where(ResourceLink.is_valid == True)
-            .group_by(ResourceLink.resource_id)
-        )
-        for rid, cnt in (await db.execute(link_count_stmt)).all():
-            link_counts[rid] = cnt
+    link_counts = await _fetch_link_counts(db, resource_ids)
 
     items = []
     for r in resources:
@@ -211,16 +217,7 @@ async def get_hot(db: AsyncSession = Depends(get_db)):
     resources = (await db.execute(stmt)).scalars().all()
 
     resource_ids = [r.id for r in resources]
-    link_counts = {}
-    if resource_ids:
-        link_count_stmt = (
-            select(ResourceLink.resource_id, func.count(ResourceLink.id))
-            .where(ResourceLink.resource_id.in_(resource_ids))
-            .where(ResourceLink.is_valid == True)
-            .group_by(ResourceLink.resource_id)
-        )
-        for rid, cnt in (await db.execute(link_count_stmt)).all():
-            link_counts[rid] = cnt
+    link_counts = await _fetch_link_counts(db, resource_ids)
 
     return [
         ResourceCardOut(
@@ -276,16 +273,7 @@ async def get_latest(db: AsyncSession = Depends(get_db)):
     )
     resources = (await db.execute(stmt)).scalars().all()
     resource_ids = [r.id for r in resources]
-    link_counts: dict = {}
-    if resource_ids:
-        lc_stmt = (
-            select(ResourceLink.resource_id, func.count(ResourceLink.id))
-            .where(ResourceLink.resource_id.in_(resource_ids))
-            .where(ResourceLink.is_valid == True)
-            .group_by(ResourceLink.resource_id)
-        )
-        for rid, cnt in (await db.execute(lc_stmt)).all():
-            link_counts[rid] = cnt
+    link_counts = await _fetch_link_counts(db, resource_ids)
     return [
         ResourceCardOut(
             id=r.id, title=r.title, title_en=r.title_en,
@@ -357,16 +345,7 @@ async def get_related(resource_id: int, db: AsyncSession = Depends(get_db)):
         related += list((await db.execute(stmt3)).scalars().all())
 
     resource_ids = [r.id for r in related]
-    link_counts: dict = {}
-    if resource_ids:
-        lc_stmt = (
-            select(ResourceLink.resource_id, func.count(ResourceLink.id))
-            .where(ResourceLink.resource_id.in_(resource_ids))
-            .where(ResourceLink.is_valid == True)
-            .group_by(ResourceLink.resource_id)
-        )
-        for rid, cnt in (await db.execute(lc_stmt)).all():
-            link_counts[rid] = cnt
+    link_counts = await _fetch_link_counts(db, resource_ids)
 
     return [
         ResourceCardOut(

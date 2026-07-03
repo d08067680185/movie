@@ -53,6 +53,15 @@ export default function Navbar() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
+  // 监听收藏数变化事件
+  useEffect(() => {
+    function onFavoritesChanged() {
+      setFavCount(getFavoritesCount());
+    }
+    window.addEventListener("favoritesChanged", onFavoritesChanged);
+    return () => window.removeEventListener("favoritesChanged", onFavoritesChanged);
+  }, []);
+
   function toggleTheme() {
     const next = theme === "dark" ? "light" : "dark";
     setTheme(next);

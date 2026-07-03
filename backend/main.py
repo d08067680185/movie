@@ -9,6 +9,8 @@ from api.search import router as search_router
 from api.admin import router as admin_router
 from api.tmdb import router as tmdb_router
 from config import settings
+from spiders.scheduler import run_all_spiders
+from utils import backup_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,13 +29,13 @@ async def lifespan(app: FastAPI):
     await seed_demo_data()
 
     scheduler.add_job(
-        lambda: asyncio.create_task(__import__("spiders.scheduler", fromlist=["run_all_spiders"]).run_all_spiders()),
+        run_all_spiders,
         "interval",
         hours=settings.SPIDER_INTERVAL_HOURS,
         id="crawl_all",
     )
     scheduler.add_job(
-        lambda: __import__("utils", fromlist=["backup_db"]).backup_db(),
+        lambda: asyncio.create_task(asyncio.to_thread(backup_db)),
         "cron",
         hour=3,
         minute=0,

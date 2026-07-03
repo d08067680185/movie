@@ -60,6 +60,7 @@ export default function DetailContent({ id }: Props) {
     };
     const result = toggleFavorite(card);
     setFaved(result);
+    window.dispatchEvent(new Event("favoritesChanged"));
   }
 
   // 点击外部关闭分享面板
@@ -110,10 +111,10 @@ export default function DetailContent({ id }: Props) {
   }
 
   useEffect(() => {
-    getResource(id)
-      .then((r) => {
+    Promise.all([getResource(id), getRelated(id)])
+      .then(([r, rel]) => {
         setResource(r);
-        getRelated(id).then(setRelated);
+        setRelated(rel);
       })
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));

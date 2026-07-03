@@ -33,6 +33,7 @@ export default function ResourceCard({ resource }: Props) {
     e.stopPropagation();
     const result = toggleFavorite(resource);
     setFaved(result);
+    window.dispatchEvent(new Event("favoritesChanged"));
   }, [resource]);
 
   const handleShare = useCallback((e: React.MouseEvent) => {
