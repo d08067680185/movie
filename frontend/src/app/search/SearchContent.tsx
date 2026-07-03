@@ -82,6 +82,7 @@ export default function SearchContent() {
     }
     const year = searchParams.get("year");
     const genre = searchParams.get("genre") || undefined;
+    const country = searchParams.get("country") || undefined;
     const minRating = searchParams.get("min_rating");
     const hasLinksParam = searchParams.get("has_links") === "true";
     searchResources({
@@ -89,6 +90,7 @@ export default function SearchContent() {
       category: category || undefined,
       year: year ? parseInt(year) : undefined,
       genre,
+      country,
       min_rating: minRating ? parseFloat(minRating) : undefined,
       has_links: hasLinksParam || undefined,
       sort,
@@ -126,9 +128,10 @@ export default function SearchContent() {
   const totalPages = result ? Math.ceil(result.total / 24) : 0;
   const activeYear = searchParams.get("year");
   const activeGenre = searchParams.get("genre") || "";
+  const activeCountry = searchParams.get("country") || "";
   const activeMinRating = searchParams.get("min_rating") || "";
   const activeHasLinks = searchParams.get("has_links") === "true";
-  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeMinRating || activeHasLinks);
+  const hasFilters = !!(category || activeYear || sort !== "popular" || activeGenre || activeCountry || activeMinRating || activeHasLinks);
   const [jumpInput, setJumpInput] = useState("");
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchShareOpen, setSearchShareOpen] = useState(false);
@@ -397,6 +400,19 @@ export default function SearchContent() {
             >
               🔗 仅看有资源
             </button>
+          </div>
+
+          {/* 国家/地区筛选 */}
+          <div className="flex flex-wrap items-center gap-1.5 mb-4 sm:mb-6">
+            <span className="text-xs self-center shrink-0" style={{ color: "var(--text-muted)" }}>国家:</span>
+            <input
+              type="text"
+              value={activeCountry}
+              onChange={(e) => updateSearch({ country: e.target.value })}
+              placeholder="如：韩国、日本、美国"
+              className="px-2.5 py-1 rounded text-xs outline-none flex-1 sm:flex-none max-w-xs"
+              style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-primary)" }}
+            />
           </div>
         </div>
 

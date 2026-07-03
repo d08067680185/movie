@@ -154,6 +154,7 @@ export default function AdminPage() {
     loadTasks();
     loadTelegramStatus();
     loadBackups();
+    loadSearchLogs();
   }, [authed]); // eslint-disable-line
 
   // 有运行中任务时每 3s 轮询

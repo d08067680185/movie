@@ -124,6 +124,7 @@ class TMDbBatchSpider(BaseSpider):
         item._language     = d.get("original_language", "")
         item._rating_count = d.get("vote_count", 0)
         item._backdrop_url = f"{IMG_W1280}{d['backdrop_path']}" if d.get("backdrop_path") else None
+        item._duration     = d.get("episode_run_time", [None])[0]
         return item
 
     # ── 主爬取逻辑 ────────────────────────────────────────────

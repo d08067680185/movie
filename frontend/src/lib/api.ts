@@ -88,6 +88,7 @@ export async function searchResources(params: {
   category?: string;
   year?: number;
   genre?: string;
+  country?: string;
   min_rating?: number;
   has_links?: boolean;
   sort?: string;
@@ -99,6 +100,7 @@ export async function searchResources(params: {
   if (params.category) sp.set("category", params.category);
   if (params.year) sp.set("year", String(params.year));
   if (params.genre) sp.set("genre", params.genre);
+  if (params.country) sp.set("country", params.country);
   if (params.min_rating) sp.set("min_rating", String(params.min_rating));
   if (params.has_links) sp.set("has_links", "true");
   if (params.sort && params.sort !== "popular") sp.set("sort", params.sort);

@@ -47,6 +47,7 @@ async def search(
     category: Optional[str] = None,
     year: Optional[int] = None,
     genre: Optional[str] = None,
+    country: Optional[str] = None,
     min_rating: Optional[float] = None,
     has_links: Optional[bool] = None,
     sort: str = Query("popular", description="popular|rating|newest|latest"),
@@ -84,6 +85,9 @@ async def search(
 
     if genre:
         stmt = stmt.where(Resource.genre.ilike(f"%{genre}%"))
+
+    if country:
+        stmt = stmt.where(Resource.country.ilike(f"%{country}%"))
 
     if min_rating is not None:
         stmt = stmt.where(Resource.rating >= min_rating)
