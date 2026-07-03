@@ -15,6 +15,7 @@ function apiFetch(path: string, opts: RequestInit = {}, token: string) {
 interface LinkDetail {
   id: number; url: string; link_type: string;
   password?: string; quality?: string; is_valid: boolean;
+  subtitle?: string; episode_info?: string;
 }
 interface ResourceDetail {
   id: number; title: string; year?: number; category?: string;
@@ -81,7 +82,7 @@ export default function AdminPage() {
   const [searchLogs, setSearchLogs] = useState<{ keyword: string; count: number; last_searched: string | null }[]>([]);
   const [logsLoaded, setLogsLoaded] = useState(false);
   const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [addLinkForm, setAddLinkForm] = useState<{ resource_id: number; url: string; link_type: string; password: string } | null>(null);
+  const [addLinkForm, setAddLinkForm] = useState<{ resource_id: number; url: string; link_type: string; password: string; quality?: string; subtitle?: string } | null>(null);
   const [bgmRunning, setBgmRunning] = useState(false);
   const [batchJson, setBatchJson] = useState("");
   const [batchRunning, setBatchRunning] = useState(false);
@@ -125,6 +126,10 @@ export default function AdminPage() {
   const [editResId, setEditResId] = useState<number | null>(null);
   const [editResForm, setEditResForm] = useState({ title: "", year: "", category: "电影", genre: "", synopsis: "", poster_url: "", rating: "" });
   const [editResRunning, setEditResRunning] = useState(false);
+  // 链接编辑
+  const [editLinkId, setEditLinkId] = useState<number | null>(null);
+  const [editLinkForm, setEditLinkForm] = useState({ url: "", link_type: "magnet", quality: "", password: "", subtitle: "" });
+  const [editLinkRunning, setEditLinkRunning] = useState(false);
 
   // msg 5 秒后自动消除
   useEffect(() => {
@@ -287,6 +292,30 @@ export default function AdminPage() {
     loadResources();
   }
 
+  async function updateLink(linkId: number) {
+    if (!editLinkForm.url.trim()) {
+      setMsg("URL不能为空");
+      return;
+    }
+    setEditLinkRunning(true);
+    const body: Record<string, any> = {};
+    if (editLinkForm.url) body.url = editLinkForm.url;
+    if (editLinkForm.link_type) body.link_type = editLinkForm.link_type;
+    if (editLinkForm.quality) body.quality = editLinkForm.quality;
+    if (editLinkForm.password) body.password = editLinkForm.password;
+    if (editLinkForm.subtitle) body.subtitle = editLinkForm.subtitle;
+
+    const resp = await apiFetch(`/api/admin/links/${linkId}`, { method: "PATCH", body: JSON.stringify(body) }, token);
+    setEditLinkRunning(false);
+    if (resp.ok) {
+      setMsg("链接已更新");
+      setEditLinkId(null);
+      loadResources();
+    } else {
+      setMsg("更新失败，请重试");
+    }
+  }
+
   async function deleteResource(resourceId: number, title: string) {
     if (!confirm(`确认删除「${title}」及其所有链接？此操作不可恢复。`)) return;
     const resp = await apiFetch(`/api/admin/resources/${resourceId}`, { method: "DELETE" }, token);
@@ -311,6 +340,8 @@ export default function AdminPage() {
         url: addLinkForm.url,
         link_type: addLinkForm.link_type,
         password: addLinkForm.password || undefined,
+        quality: addLinkForm.quality || undefined,
+        subtitle: addLinkForm.subtitle || undefined,
       }),
     }, token);
     if (resp.ok) {
@@ -1524,6 +1555,12 @@ export default function AdminPage() {
                                 <span className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
                                   style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>密码:{lk.password}</span>
                               )}
+                              <button onClick={() => {
+                                setEditLinkId(lk.id);
+                                setEditLinkForm({ url: lk.url, link_type: lk.link_type, quality: lk.quality || "", password: lk.password || "", subtitle: lk.subtitle || "" });
+                              }}
+                                className="text-xs px-2 py-0.5 rounded flex-shrink-0"
+                                style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>编辑</button>
                               <button onClick={() => toggleLinkValidity(lk.id, lk.is_valid)}
                                 className="text-xs px-2 py-0.5 rounded flex-shrink-0"
                                 style={lk.is_valid
@@ -1667,10 +1704,78 @@ export default function AdminPage() {
                     className="w-full px-3 py-2 rounded outline-none text-sm"
                     style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
                 </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>字幕（可选）</label>
+                  <input value={addLinkForm.subtitle || ""} onChange={e => setAddLinkForm(f => f && ({ ...f, subtitle: e.target.value }))}
+                    placeholder="如：中文, 英文"
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
                 <div className="flex gap-3 pt-2">
                   <button type="submit" className="flex-1 py-2.5 rounded-lg font-semibold text-white"
                     style={{ background: "#e50914" }}>确认添加</button>
                   <button type="button" onClick={() => setAddLinkForm(null)}
+                    className="flex-1 py-2.5 rounded-lg font-semibold"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>取消</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* 编辑链接弹窗 */}
+        {editLinkId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }}>
+            <div className="w-full max-w-md p-6 rounded-2xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
+              <h3 className="font-bold text-lg mb-4">编辑链接</h3>
+              <form onSubmit={e => { e.preventDefault(); updateLink(editLinkId); }} className="space-y-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接类型</label>
+                  <select value={editLinkForm.link_type} onChange={e => setEditLinkForm(f => ({ ...f, link_type: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+                    <option value="pan_quark">夸克网盘</option>
+                    <option value="pan_baidu">百度网盘</option>
+                    <option value="pan_aliyun">阿里云盘</option>
+                    <option value="magnet">磁力链接</option>
+                    <option value="direct">直链</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>链接地址</label>
+                  <input value={editLinkForm.url} onChange={e => setEditLinkForm(f => ({ ...f, url: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 rounded outline-none text-sm font-mono"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>画质（可选）</label>
+                  <input value={editLinkForm.quality} onChange={e => setEditLinkForm(f => ({ ...f, quality: e.target.value }))}
+                    placeholder="1080P, 720P, 等..."
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>提取码（可选）</label>
+                  <input value={editLinkForm.password} onChange={e => setEditLinkForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="如：8888"
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: "#606070" }}>字幕（可选）</label>
+                  <input value={editLinkForm.subtitle} onChange={e => setEditLinkForm(f => ({ ...f, subtitle: e.target.value }))}
+                    placeholder="如：中文, 英文"
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button type="submit" disabled={editLinkRunning}
+                    className="flex-1 py-2.5 rounded-lg font-semibold text-white disabled:opacity-40"
+                    style={{ background: "#e50914" }}>
+                    {editLinkRunning ? "保存中..." : "保存修改"}
+                  </button>
+                  <button type="button" onClick={() => setEditLinkId(null)}
                     className="flex-1 py-2.5 rounded-lg font-semibold"
                     style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>取消</button>
                 </div>
