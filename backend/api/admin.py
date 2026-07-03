@@ -641,6 +641,31 @@ async def get_backups(_=Depends(verify_admin)):
     return list_backups()
 
 
+@router.post("/restore")
+async def restore_backup(backup_file: str, _=Depends(verify_admin)):
+    """E: 恢复数据库备份"""
+    import os
+    import shutil
+
+    backup_dir = "backups"
+    backup_path = os.path.join(backup_dir, backup_file)
+
+    if not os.path.exists(backup_path) or not backup_path.endswith(".db"):
+        raise HTTPException(status_code=400, detail="Invalid backup file")
+
+    db_path = "movie_search.db"
+
+    # 备份当前数据库
+    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    current_backup = os.path.join(backup_dir, f"movie_search_pre_restore_{ts}.db")
+    shutil.copy2(db_path, current_backup)
+
+    # 恢复备份
+    shutil.copy2(backup_path, db_path)
+
+    return {"message": f"已恢复备份 {backup_file}，原数据库备份至 {os.path.basename(current_backup)}"}
+
+
 @router.post("/telegram-config")
 async def set_telegram_config(payload: dict, _=Depends(verify_admin)):
     """E: 配置 Telegram 通知"""

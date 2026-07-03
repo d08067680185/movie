@@ -1,5 +1,5 @@
 import time
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -43,15 +43,15 @@ async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
 
 @router.get("/search", response_model=SearchResult)
 async def search(
-    q: str = Query("", description="搜索关键词"),
-    category: Optional[str] = None,
+    q: str = Query("", max_length=100, description="搜索关键词"),
+    category: Optional[str] = Query(None, max_length=20),
     year: Optional[int] = None,
-    genre: Optional[str] = None,
-    country: Optional[str] = None,
-    min_rating: Optional[float] = None,
+    genre: Optional[str] = Query(None, max_length=50),
+    country: Optional[str] = Query(None, max_length=50),
+    min_rating: Optional[float] = Query(None, ge=0, le=10),
     has_links: Optional[bool] = None,
-    sort: str = Query("popular", description="popular|rating|newest|latest"),
-    page: int = Query(1, ge=1),
+    sort: str = Query("popular", regex="^(popular|rating|newest|latest)$"),
+    page: int = Query(1, ge=1, le=1000),
     page_size: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
@@ -241,9 +241,11 @@ async def get_hot(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats", response_model=StatsOut)
-async def get_stats(db: AsyncSession = Depends(get_db)):
+async def get_stats(db: AsyncSession = Depends(get_db), response: Response = None):
     global _stats_cache, _stats_cache_ts
     if _stats_cache is not None and (time.time() - _stats_cache_ts) < _STATS_TTL:
+        if response:
+            response.headers["Cache-Control"] = "public, max-age=60"
         return _stats_cache
 
     total_resources = (await db.execute(select(func.count(Resource.id)))).scalar()
@@ -263,6 +265,8 @@ async def get_stats(db: AsyncSession = Depends(get_db)):
     )
     _stats_cache = result
     _stats_cache_ts = time.time()
+    if response:
+        response.headers["Cache-Control"] = "public, max-age=60"
     return result
 
 

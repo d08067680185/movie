@@ -23,7 +23,7 @@ const SORT_OPTIONS = [
 ];
 
 const currentYear = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: 10 }, (_, i) => currentYear - i);
+const YEAR_OPTIONS = Array.from({ length: currentYear - 1949 }, (_, i) => currentYear - i);
 
 const INACTIVE_BTN = {
   background: "var(--bg-input)",
