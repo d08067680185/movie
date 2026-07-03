@@ -147,9 +147,9 @@ async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db)):
     if not resource:
         raise HTTPException(status_code=404, detail="资源不存在")
 
-    # 增加浏览次数
-    await db.execute(update(Resource).where(Resource.id == resource_id).values(view_count=Resource.view_count + 1))
-    await db.commit()
+    # 禁用view_count更新（SQLite并发锁定导致数据库损坏）
+    # await db.execute(update(Resource).where(Resource.id == resource_id).values(view_count=Resource.view_count + 1))
+    # await db.commit()
 
     links = []
     for link in resource.links:
