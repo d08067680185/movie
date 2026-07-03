@@ -165,6 +165,7 @@ async def run_pan_search(source_id: int, config: dict):
     from models import Resource, ResourceLink, Source, SpiderLog
     from sqlalchemy import select, func, update
     from datetime import datetime
+    from tasks import start_task, update_task, finish_task
 
     max_per_run = int(config.get("max_per_run", 20))
     min_links   = int(config.get("min_links", 0))
@@ -196,14 +197,16 @@ async def run_pan_search(source_id: int, config: dict):
         await db.commit()
         await db.refresh(log)
 
+    start_task("pan_search", "网盘资源搜索", total=len(resources))
     new_link_count = 0
 
     async with PanSearchSpider(config) as spider:
-        for res in resources:
+        for idx, res in enumerate(resources):
             logger.info(f"[PanSearch] 搜索: {res.title} ({res.year})")
             links = await spider.search_for_resource(res.title, res.year)
 
             if not links:
+                update_task("pan_search", done=idx+1, message=f"已处理 {idx+1}/{len(resources)}")
                 continue
 
             async with AsyncSessionLocal() as db:
@@ -227,6 +230,7 @@ async def run_pan_search(source_id: int, config: dict):
                         new_link_count += 1
                 await db.commit()
 
+            update_task("pan_search", done=idx+1, message=f"已处理 {idx+1}/{len(resources)}")
             logger.info(f"[PanSearch] {res.title}: +{len(links)} 条链接")
 
     async with AsyncSessionLocal() as db:
@@ -239,4 +243,5 @@ async def run_pan_search(source_id: int, config: dict):
         )
         await db.commit()
 
+    finish_task("pan_search", status="success", message=f"写入 {new_link_count} 条网盘链接")
     logger.info(f"[PanSearch] 完成，共写入 {new_link_count} 条网盘链接")

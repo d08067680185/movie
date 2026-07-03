@@ -188,6 +188,7 @@ async def run_bangumi_enrich(config: dict):
     from models import Resource, SpiderLog, Source
     from sqlalchemy import select, update
     from datetime import datetime
+    from tasks import start_task, update_task, finish_task
 
     max_per_run = int(config.get("max_per_run", 50))
     delay = float(config.get("delay", 1.0))
@@ -208,11 +209,12 @@ async def run_bangumi_enrich(config: dict):
         await db.commit()
         await db.refresh(log)
 
+    start_task("bangumi_enrich", "Bangumi 动漫补全", total=len(resources))
     enriched = 0
     failed = 0
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        for res in resources:
+        for idx, res in enumerate(resources):
             logger.info(f"[Bangumi] 搜索: {res.title}")
             try:
                 item = await search_bangumi(client, res.title)
@@ -220,12 +222,14 @@ async def run_bangumi_enrich(config: dict):
                     logger.info(f"[Bangumi] 未找到: {res.title}")
                     failed += 1
                     await asyncio.sleep(delay)
+                    update_task("bangumi_enrich", done=idx+1, message=f"已处理 {idx+1}/{len(resources)}")
                     continue
 
                 detail = await get_bangumi_detail(client, item["id"])
                 if not detail:
                     failed += 1
                     await asyncio.sleep(delay)
+                    update_task("bangumi_enrich", done=idx+1, message=f"已处理 {idx+1}/{len(resources)}")
                     continue
 
                 meta = extract_meta(detail)
@@ -249,6 +253,7 @@ async def run_bangumi_enrich(config: dict):
                 logger.warning(f"[Bangumi] 处理 {res.title} 出错: {e}")
                 failed += 1
 
+            update_task("bangumi_enrich", done=idx+1, message=f"已处理 {idx+1}/{len(resources)}")
             await asyncio.sleep(delay)
 
     async with AsyncSessionLocal() as db:
@@ -262,4 +267,5 @@ async def run_bangumi_enrich(config: dict):
         )
         await db.commit()
 
+    finish_task("bangumi_enrich", status="success", message=f"补全 {enriched} 条，未找到 {failed} 条")
     logger.info(f"[Bangumi] 完成：补全 {enriched} 条，未找到 {failed} 条")
