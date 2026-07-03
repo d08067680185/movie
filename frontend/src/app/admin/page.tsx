@@ -36,6 +36,7 @@ interface Source {
 interface Log {
   id: number;
   source_id?: number;
+  source_name?: string;
   status: string;
   new_resources: number;
   updated_resources: number;
@@ -2003,6 +2004,11 @@ export default function AdminPage() {
                   <span className="font-bold" style={{ color: statusColors[log.status] || "#a0a0b0", minWidth: 52 }}>
                     {log.status}
                   </span>
+                  {log.source_name && (
+                    <span className="text-xs px-2 py-1 rounded flex-shrink-0" style={{ background: "rgba(139,92,246,0.15)", color: "#8b5cf6" }}>
+                      {log.source_name}
+                    </span>
+                  )}
                   <span style={{ color: "#a0a0b0" }}>+{log.new_resources} 新增</span>
                   <span style={{ color: "#a0a0b0" }}>~{log.updated_resources} 更新</span>
                   <span className="flex-1 text-xs truncate" style={{ color: "#606070" }}>

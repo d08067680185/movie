@@ -73,12 +73,25 @@ async def trigger_spider(source_id: int, db: AsyncSession = Depends(get_db), _=D
     return {"message": f"Spider '{source.name}' triggered"}
 
 
-@router.get("/logs", response_model=list[SpiderLogOut])
+@router.get("/logs")
 async def list_logs(limit: int = 20, offset: int = 0, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    from sqlalchemy import func
     result = await db.execute(
-        select(SpiderLog).order_by(SpiderLog.started_at.desc()).limit(limit).offset(offset)
+        select(SpiderLog, Source.name.label("source_name"))
+        .outerjoin(Source, Source.id == SpiderLog.source_id)
+        .order_by(SpiderLog.started_at.desc())
+        .limit(limit).offset(offset)
     )
-    return result.scalars().all()
+    logs = []
+    for log, source_name in result:
+        log_dict = {
+            "id": log.id, "source_id": log.source_id, "source_name": source_name,
+            "status": log.status, "new_resources": log.new_resources,
+            "updated_resources": log.updated_resources, "error_msg": log.error_msg,
+            "started_at": log.started_at, "finished_at": log.finished_at
+        }
+        logs.append(log_dict)
+    return logs
 
 
 @router.post("/resources", response_model=dict)
