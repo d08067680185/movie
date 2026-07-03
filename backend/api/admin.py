@@ -702,3 +702,28 @@ async def create_pan_search_source(
     await db.commit()
     await db.refresh(source)
     return {"id": source.id, "name": source.name, "message": "创建成功"}
+
+
+@router.get("/stats-detail")
+async def get_stats_detail(db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    from datetime import datetime, timedelta
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+
+    today_resources = (
+        await db.execute(
+            select(func.count(Resource.id))
+            .where(Resource.created_at >= today_start)
+            .where(Resource.created_at < today_end)
+        )
+    ).scalar() or 0
+
+    today_links = (
+        await db.execute(
+            select(func.count(ResourceLink.id))
+            .where(ResourceLink.created_at >= today_start)
+            .where(ResourceLink.created_at < today_end)
+        )
+    ).scalar() or 0
+
+    return {"today_resources": today_resources, "today_links": today_links}

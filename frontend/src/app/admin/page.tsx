@@ -65,6 +65,7 @@ export default function AdminPage() {
   const [logs, setLogs] = useState<Log[]>([]);
   const [spiderClasses, setSpiderClasses] = useState<string[]>([]);
   const [stats, setStats] = useState<Record<string, number> | null>(null);
+  const [statsDetail, setStatsDetail] = useState<{ today_resources: number; today_links: number } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", spider_class: "demo", base_url: "", config: "{}" });
   const [msg, setMsg] = useState("");
@@ -166,11 +167,12 @@ export default function AdminPage() {
   }
 
   async function loadData(t = token) {
-    const [srcRes, logRes, classRes, statsRes, keyRes] = await Promise.all([
+    const [srcRes, logRes, classRes, statsRes, statsDetailRes, keyRes] = await Promise.all([
       apiFetch("/api/admin/sources", {}, t),
       apiFetch("/api/admin/logs", {}, t),
       apiFetch("/api/admin/spider-classes", {}, t),
       fetch(`${API}/api/stats`),
+      apiFetch("/api/admin/stats-detail", {}, t),
       apiFetch("/api/admin/tmdb-key-status", {}, t),
     ]);
     if (srcRes.ok) setSources(await srcRes.json());
@@ -179,6 +181,9 @@ export default function AdminPage() {
     if (statsRes.ok) {
       const s = await statsRes.json();
       setStats({ 影视资源: s.total_resources, 下载链接: s.total_links, 数据来源: s.total_sources });
+    }
+    if (statsDetailRes.ok) {
+      setStatsDetail(await statsDetailRes.json());
     }
     if (keyRes.ok) {
       const k = await keyRes.json();
@@ -716,17 +721,26 @@ export default function AdminPage() {
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
         {/* 统计 */}
         {stats && (
-          <div className="grid grid-cols-3 gap-4">
-            {Object.entries(stats).map(([label, value]) => (
-              <div
-                key={label}
-                className="p-4 rounded-xl text-center"
-                style={{ background: DARK.bgCard, border: DARK.borderStr }}
-              >
-                <div className="text-2xl font-black" style={{ color: "#e50914" }}>{value}</div>
-                <div className="text-xs mt-1" style={{ color: "#606070" }}>{label}</div>
-              </div>
-            ))}
+          <div>
+            <div className="grid grid-cols-3 gap-4">
+              {Object.entries(stats).map(([label, value]) => (
+                <div
+                  key={label}
+                  className="p-4 rounded-xl text-center"
+                  style={{ background: DARK.bgCard, border: DARK.borderStr }}
+                >
+                  <div className="text-2xl font-black" style={{ color: "#e50914" }}>{value}</div>
+                  <div className="text-xs mt-1" style={{ color: "#606070" }}>{label}</div>
+                  {/* 今日新增小字 */}
+                  {statsDetail && (
+                    <div className="text-xs mt-2 pt-2 border-t" style={{ borderColor: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+                      {label === "影视资源" && `今日: +${statsDetail.today_resources}`}
+                      {label === "下载链接" && `今日: +${statsDetail.today_links}`}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
