@@ -20,7 +20,7 @@ _ORDER_MAP = {
     "latest":  [Resource.id.desc()],
 }
 
-_stats_cache: dict | None = None
+_stats_cache: Optional[dict] = None
 _stats_cache_ts: float = 0.0
 _STATS_TTL = 60.0
 
