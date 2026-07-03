@@ -134,6 +134,12 @@ export default function AdminPage() {
   const [editLinkId, setEditLinkId] = useState<number | null>(null);
   const [editLinkForm, setEditLinkForm] = useState({ url: "", link_type: "magnet", quality: "", password: "", subtitle: "", format: "", size: "", episode_info: "" });
   const [editLinkRunning, setEditLinkRunning] = useState(false);
+  // TMDb 补全
+  const [tmdbEnrichId, setTmdbEnrichId] = useState<number | null>(null);
+  const [tmdbEnrichForm, setTmdbEnrichForm] = useState({ tmdb_id: "", media_type: "movie", search_query: "" });
+  const [tmdbSearchResults, setTmdbSearchResults] = useState<any[]>([]);
+  const [tmdbEnrichRunning, setTmdbEnrichRunning] = useState(false);
+  const [tmdbSearchRunning, setTmdbSearchRunning] = useState(false);
 
   // msg 5 秒后自动消除
   useEffect(() => {
@@ -325,6 +331,38 @@ export default function AdminPage() {
     } else {
       setMsg("更新失败，请重试");
     }
+  }
+
+  async function searchTMDb(query: string) {
+    if (!query.trim()) return;
+    setTmdbSearchRunning(true);
+    const resp = await apiFetch(`/api/tmdb/search?q=${encodeURIComponent(query)}`, {}, token);
+    if (resp.ok) {
+      const data = await resp.json();
+      setTmdbSearchResults(data.results || []);
+    } else {
+      setMsg("搜索失败");
+    }
+    setTmdbSearchRunning(false);
+  }
+
+  async function enrichResourceTMDb() {
+    if (!tmdbEnrichId) return;
+    if (!tmdbEnrichForm.tmdb_id.trim()) {
+      setMsg("请输入或选择 TMDb ID");
+      return;
+    }
+    setTmdbEnrichRunning(true);
+    const url = `/api/tmdb/enrich/${tmdbEnrichId}?tmdb_id=${tmdbEnrichForm.tmdb_id}&media_type=${tmdbEnrichForm.media_type}`;
+    const resp = await apiFetch(url, { method: "POST" }, token);
+    if (resp.ok) {
+      setMsg("资源已补全");
+      setTmdbEnrichId(null);
+      loadResources();
+    } else {
+      setMsg("补全失败");
+    }
+    setTmdbEnrichRunning(false);
   }
 
   async function deleteResource(resourceId: number, title: string) {
@@ -1547,6 +1585,11 @@ export default function AdminPage() {
                         style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.2)" }}>
                         编辑
                       </button>
+                      <button onClick={e => { e.stopPropagation(); setTmdbEnrichId(res.id); setTmdbEnrichForm({ tmdb_id: "", media_type: "movie", search_query: "" }); setTmdbSearchResults([]); }}
+                        className="px-2 py-1 rounded text-xs"
+                        style={{ background: "rgba(168,85,247,0.12)", color: "#a855f7", border: "1px solid rgba(168,85,247,0.2)" }}>
+                        TMDb补全
+                      </button>
                       <button onClick={e => { e.stopPropagation(); deleteResource(res.id, res.title); }}
                         className="px-2 py-1 rounded text-xs"
                         style={{ background: "rgba(239,68,68,0.12)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" }}>
@@ -1706,6 +1749,68 @@ export default function AdminPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* TMDb 补全弹窗 */}
+        {tmdbEnrichId && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.7)" }}>
+            <div className="w-full max-w-md p-6 rounded-2xl mx-4" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
+              <h3 className="font-bold text-lg mb-4">TMDb 补全资源</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>类型</label>
+                  <select value={tmdbEnrichForm.media_type} onChange={e => setTmdbEnrichForm(f => ({ ...f, media_type: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm" style={{ ...inputStyle, background: "rgba(30,30,40,1)" }}>
+                    <option value="movie">电影</option>
+                    <option value="tv">电视剧</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>搜索或输入 TMDb ID</label>
+                  <div className="flex gap-2 mb-2">
+                    <input value={tmdbEnrichForm.search_query} onChange={e => setTmdbEnrichForm(f => ({ ...f, search_query: e.target.value }))}
+                      className="flex-1 px-3 py-2 rounded outline-none text-sm"
+                      style={inputStyle} placeholder="输入标题搜索..." />
+                    <button type="button" onClick={() => searchTMDb(tmdbEnrichForm.search_query)} disabled={tmdbSearchRunning}
+                      className="px-4 py-2 rounded text-sm font-semibold text-white disabled:opacity-40"
+                      style={{ background: "#e50914" }}>
+                      {tmdbSearchRunning ? "搜索中..." : "搜索"}
+                    </button>
+                  </div>
+                  {tmdbSearchResults.length > 0 && (
+                    <div className="max-h-48 overflow-y-auto space-y-1 mb-3 p-2 rounded" style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)" }}>
+                      {tmdbSearchResults.map((result: any) => (
+                        <button key={result.id} type="button" onClick={() => setTmdbEnrichForm(f => ({ ...f, tmdb_id: String(result.id) }))}
+                          className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-purple-700/20"
+                          style={{ color: "#a0a0b0" }}>
+                          <div className="font-semibold text-white">{result.title || result.name}</div>
+                          <div className="text-xs" style={{ color: "#606070" }}>{result.release_date || result.first_air_date || "无日期"}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs mb-1" style={{ color: DARK.muted }}>TMDb ID</label>
+                  <input type="number" value={tmdbEnrichForm.tmdb_id} onChange={e => setTmdbEnrichForm(f => ({ ...f, tmdb_id: e.target.value }))}
+                    className="w-full px-3 py-2 rounded outline-none text-sm"
+                    style={inputStyle} placeholder="如：550" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button type="button" onClick={enrichResourceTMDb} disabled={tmdbEnrichRunning || !tmdbEnrichForm.tmdb_id}
+                    className="flex-1 py-2 rounded font-semibold text-white disabled:opacity-40 text-sm"
+                    style={{ background: "#a855f7" }}>
+                    {tmdbEnrichRunning ? "补全中..." : "确认补全"}
+                  </button>
+                  <button type="button" onClick={() => setTmdbEnrichId(null)}
+                    className="px-6 py-2 rounded text-sm"
+                    style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+                    取消
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}
