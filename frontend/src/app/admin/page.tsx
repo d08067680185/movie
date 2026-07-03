@@ -18,6 +18,7 @@ interface LinkDetail {
 }
 interface ResourceDetail {
   id: number; title: string; year?: number; category?: string;
+  genre?: string; synopsis?: string;
   poster_url?: string; rating?: number; link_count: number; links: LinkDetail[];
 }
 
@@ -1477,7 +1478,7 @@ export default function AdminPage() {
                       <button onClick={e => {
                         e.stopPropagation();
                         setEditResId(res.id);
-                        setEditResForm({ title: res.title, year: res.year ? String(res.year) : "", category: res.category || "电影", genre: "", synopsis: "", poster_url: res.poster_url || "", rating: res.rating ? String(res.rating) : "" });
+                        setEditResForm({ title: res.title, year: res.year ? String(res.year) : "", category: res.category || "电影", genre: res.genre || "", synopsis: res.synopsis || "", poster_url: res.poster_url || "", rating: res.rating ? String(res.rating) : "" });
                       }}
                         className="px-2 py-1 rounded text-xs"
                         style={{ background: "rgba(96,165,250,0.12)", color: "#60a5fa", border: "1px solid rgba(96,165,250,0.2)" }}>
@@ -1848,42 +1849,41 @@ export default function AdminPage() {
                 </div>
               ))
             )}
+        {/* ══ 搜索热词统计 ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold">搜索热词统计</h2>
+            <button
+              onClick={loadSearchLogs}
+              className="px-4 py-2 rounded text-sm font-semibold text-white"
+              style={{ background: "#e50914" }}
+            >
+              {logsLoaded ? "刷新" : "加载"}
+            </button>
+          </div>
+          {logsLoaded && (
+            <div className="space-y-1.5">
+              {searchLogs.length === 0 ? (
+                <p className="text-sm" style={{ color: "#606070" }}>暂无搜索日志</p>
+              ) : (
+                searchLogs.map((log, i) => (
+                  <div key={log.keyword} className="flex items-center gap-3 px-3 py-2 rounded" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <span className="text-xs w-5 text-center font-bold" style={{ color: i < 3 ? "#e50914" : "#606070" }}>
+                      {i + 1}
+                    </span>
+                    <span className="flex-1 text-sm" style={{ color: "#f0f0f5" }}>{log.keyword}</span>
+                    <span className="text-sm font-semibold" style={{ color: "#e50914" }}>{log.count}</span>
+                    <span className="text-xs" style={{ color: "#606070" }}>
+                      {log.last_searched ? new Date(log.last_searched).toLocaleDateString("zh-CN") : ""}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
           </div>
         </div>
-      </div>
-
-      {/* ══ 搜索热词统计 ══ */}
-      <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: DARK.borderStr }}>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold">搜索热词统计</h2>
-          <button
-            onClick={loadSearchLogs}
-            className="px-4 py-2 rounded text-sm font-semibold text-white"
-            style={{ background: "#e50914" }}
-          >
-            {logsLoaded ? "刷新" : "加载"}
-          </button>
-        </div>
-        {logsLoaded && (
-          <div className="space-y-1.5">
-            {searchLogs.length === 0 ? (
-              <p className="text-sm" style={{ color: "#606070" }}>暂无搜索日志</p>
-            ) : (
-              searchLogs.map((log, i) => (
-                <div key={log.keyword} className="flex items-center gap-3 px-3 py-2 rounded" style={{ background: "rgba(255,255,255,0.03)" }}>
-                  <span className="text-xs w-5 text-center font-bold" style={{ color: i < 3 ? "#e50914" : "#606070" }}>
-                    {i + 1}
-                  </span>
-                  <span className="flex-1 text-sm" style={{ color: "#f0f0f5" }}>{log.keyword}</span>
-                  <span className="text-sm font-semibold" style={{ color: "#e50914" }}>{log.count}</span>
-                  <span className="text-xs" style={{ color: "#606070" }}>
-                    {log.last_searched ? new Date(log.last_searched).toLocaleDateString("zh-CN") : ""}
-                  </span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
       </div>
 
       {/* 消息提示 */}
