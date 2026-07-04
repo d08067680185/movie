@@ -59,6 +59,7 @@ class ResourceLink(Base):
     format = Column(String(50))     # MKV, MP4, AVI
     subtitle = Column(String(100))  # 中字, 外挂字幕
     episode_info = Column(String(200))
+    episode_number = Column(Integer)  # 结构化集数，从 episode_info 解析(如"第3集"->3)，无法解析则为空
     password = Column(String(100))
     is_valid = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

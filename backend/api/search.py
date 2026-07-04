@@ -191,13 +191,17 @@ async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db)):
                 format=link.format,
                 subtitle=link.subtitle,
                 episode_info=link.episode_info,
+                episode_number=link.episode_number,
                 password=link.password,
                 source_name=link.source.name if link.source else None,
             ))
 
-    # 按画质排序
+    # 有集数信息的按集数排序（选集场景），否则按画质排序
     quality_order = {"4K": 0, "1080P": 1, "720P": 2, "480P": 3, "HD": 4, "SD": 5}
-    links.sort(key=lambda x: quality_order.get(x.quality or "", 99))
+    links.sort(key=lambda x: (
+        x.episode_number if x.episode_number is not None else 10**9,
+        quality_order.get(x.quality or "", 99),
+    ))
 
     return ResourceDetailOut(
         id=resource.id,

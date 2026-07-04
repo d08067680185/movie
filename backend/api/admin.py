@@ -11,6 +11,7 @@ from config import settings, CATEGORY_MAP as _CAT_NORM
 import tasks as task_registry
 from utils import backup_db, list_backups, send_telegram
 import asyncio
+import re
 import secrets
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -196,7 +197,8 @@ async def list_resources(
             "poster_url": r.poster_url, "rating": r.rating, "link_count": valid_count,
             "links": [{"id": l.id, "url": l.url, "link_type": l.link_type,
                         "password": l.password, "quality": l.quality, "is_valid": l.is_valid,
-                        "subtitle": l.subtitle, "episode_info": l.episode_info} for l in r.links]
+                        "subtitle": l.subtitle, "episode_info": l.episode_info,
+                        "episode_number": l.episode_number} for l in r.links]
         })
     return {"total": total, "page": page, "page_size": page_size, "items": result}
 
@@ -226,7 +228,7 @@ async def update_link(
     link = await db.get(ResourceLink, link_id)
     if not link:
         raise HTTPException(status_code=404)
-    editable = ["url", "link_type", "quality", "password", "subtitle", "format", "size", "episode_info"]
+    editable = ["url", "link_type", "quality", "password", "subtitle", "format", "size", "episode_info", "episode_number"]
     for field in editable:
         if field in data and data[field] is not None:
             setattr(link, field, data[field])
@@ -414,6 +416,12 @@ async def get_tmdb_key_status(_=Depends(verify_admin)):
     return {"configured": bool(settings.TMDB_API_KEY)}
 
 
+def _parse_episode_number(episode_info: str) -> Optional[int]:
+    """从"第3集"/"资源2"这类展示用字符串里解析出结构化集数，解析不出返回 None"""
+    m = re.match(r"^第(\d+)集$", episode_info) or re.match(r"^资源(\d+)$", episode_info)
+    return int(m.group(1)) if m else None
+
+
 @router.post("/batch-import", response_model=BatchImportResult)
 async def batch_import(
     items: List[BatchResourceIn],
@@ -475,6 +483,9 @@ async def batch_import(
             for lk in item.links:
                 if lk.url in existing_urls:
                     continue
+                episode_number = lk.episode_number
+                if episode_number is None and lk.episode_info:
+                    episode_number = _parse_episode_number(lk.episode_info)
                 db.add(ResourceLink(
                     resource_id=res.id,
                     source_id=src.id,
@@ -482,6 +493,7 @@ async def batch_import(
                     link_type=lk.link_type,
                     quality=lk.quality,
                     episode_info=lk.episode_info,
+                    episode_number=episode_number,
                     password=lk.password,
                     is_valid=True,
                 ))

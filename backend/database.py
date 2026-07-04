@@ -23,8 +23,22 @@ async def init_db():
 
         # 旧库补字段：resource_links.last_checked_at（链接检测追踪用）
         cols = (await conn.execute(text("PRAGMA table_info(resource_links)"))).all()
-        if not any(c[1] == "last_checked_at" for c in cols):
+        col_names = {c[1] for c in cols}
+        if "last_checked_at" not in col_names:
             await conn.execute(text("ALTER TABLE resource_links ADD COLUMN last_checked_at DATETIME"))
+        if "episode_number" not in col_names:
+            await conn.execute(text("ALTER TABLE resource_links ADD COLUMN episode_number INTEGER"))
+            # 回填：从已有 episode_info 里解析集数/序号(如"第3集"/"资源2"->3/2)
+            await conn.execute(text(
+                "UPDATE resource_links SET episode_number = "
+                "CAST(substr(episode_info, 2, length(episode_info) - 2) AS INTEGER) "
+                "WHERE episode_info GLOB '第[0-9]*集'"
+            ))
+            await conn.execute(text(
+                "UPDATE resource_links SET episode_number = "
+                "CAST(substr(episode_info, 3) AS INTEGER) "
+                "WHERE episode_info GLOB '资源[0-9]*' AND episode_number IS NULL"
+            ))
 
         for sql in [
             "CREATE INDEX IF NOT EXISTS idx_rl_last_checked ON resource_links (last_checked_at)",

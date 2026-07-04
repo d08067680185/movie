@@ -12,6 +12,7 @@ class ResourceLinkOut(BaseModel):
     format: Optional[str]
     subtitle: Optional[str]
     episode_info: Optional[str]
+    episode_number: Optional[int] = None
     password: Optional[str]
     source_name: Optional[str] = None
 
@@ -120,6 +121,7 @@ class LinkCreate(BaseModel):
     format: Optional[str] = None
     subtitle: Optional[str] = None
     episode_info: Optional[str] = None
+    episode_number: Optional[int] = None
     password: Optional[str] = None
 
 
@@ -140,6 +142,7 @@ class BatchLinkIn(BaseModel):
     link_type: str          # pan_quark / pan_baidu / pan_aliyun / magnet / direct
     quality: Optional[str] = None
     episode_info: Optional[str] = None
+    episode_number: Optional[int] = None
     password: Optional[str] = None
 
 
