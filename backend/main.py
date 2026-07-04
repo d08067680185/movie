@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -11,6 +12,7 @@ from api.tmdb import router as tmdb_router
 from config import settings
 from spiders.scheduler import run_all_spiders
 from utils import backup_db
+from api.admin import run_link_check
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,6 +42,13 @@ async def lifespan(app: FastAPI):
         hour=3,
         minute=0,
         id="daily_backup",
+    )
+    scheduler.add_job(
+        lambda: asyncio.create_task(run_link_check(settings.LINK_CHECK_BATCH_SIZE)),
+        "interval",
+        hours=settings.LINK_CHECK_INTERVAL_HOURS,
+        id="check_links_scheduled",
+        next_run_time=datetime.now() + timedelta(minutes=5),
     )
     scheduler.start()
     logger.info("Scheduler started")

@@ -1,7 +1,7 @@
 import time
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, update
+from sqlalchemy import select, func, or_, update, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import selectinload
 from typing import Optional
@@ -58,17 +58,31 @@ async def search(
     stmt = select(Resource)
 
     if q.strip():
-        kw = f"%{q.strip()}%"
-        stmt = stmt.where(
-            or_(
-                Resource.title.ilike(kw),
-                Resource.title_en.ilike(kw),
-                Resource.original_title.ilike(kw),
-                Resource.directors.ilike(kw),
-                Resource.actors.ilike(kw),
-                Resource.synopsis.ilike(kw),
+        keyword = q.strip()
+        if len(keyword) >= 3:
+            # FTS5(trigram) 索引查询：显著快于全字段 ilike 全表扫描
+            fts_query = '"' + keyword.replace('"', '""') + '"'
+            fts_rows = (
+                await db.execute(
+                    text("SELECT rowid FROM resources_fts WHERE resources_fts MATCH :kw"),
+                    {"kw": fts_query},
+                )
+            ).all()
+            matched_ids = [row[0] for row in fts_rows]
+            stmt = stmt.where(Resource.id.in_(matched_ids))
+        else:
+            # trigram 索引至少需要3个字符才能匹配，短关键词兜底走 ilike
+            kw = f"%{keyword}%"
+            stmt = stmt.where(
+                or_(
+                    Resource.title.ilike(kw),
+                    Resource.title_en.ilike(kw),
+                    Resource.original_title.ilike(kw),
+                    Resource.directors.ilike(kw),
+                    Resource.actors.ilike(kw),
+                    Resource.synopsis.ilike(kw),
+                )
             )
-        )
         ins = sqlite_insert(SearchLog).values(keyword=q.strip(), count=1)
         ins = ins.on_conflict_do_update(
             index_elements=["keyword"],

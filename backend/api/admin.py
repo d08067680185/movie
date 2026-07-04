@@ -579,49 +579,61 @@ async def merge_resources(
     return {"message": f"已合并：移动 {moved} 条链接，删除资源 {dup_id}"}
 
 
+async def run_link_check(max_per_run: int, task_id: Optional[str] = None):
+    """对网盘链接发送 HEAD 请求，将无法访问的标记为失效。
+    优先检测从未检测过/检测时间最早的链接，保证全量链接能被轮转覆盖到，
+    而不是纯随机抽样导致部分链接长期检测不到。
+    """
+    from database import AsyncSessionLocal
+    import aiohttp
+    from sqlalchemy import func as _func
+
+    pan_types = {"pan_quark", "pan_baidu", "pan_aliyun", "direct"}
+    async with AsyncSessionLocal() as fetch_db:
+        stmt = (select(ResourceLink)
+                .where(ResourceLink.is_valid == True, ResourceLink.link_type.in_(pan_types))
+                .order_by(ResourceLink.last_checked_at.asc().nulls_first())
+                .limit(max_per_run))
+        link_rows = (await fetch_db.execute(stmt)).scalars().all()
+        links = [(lk.id, lk.url) for lk in link_rows]
+
+    invalid_count = 0
+    headers = {"User-Agent": "Mozilla/5.0"}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for i, (link_id, url) in enumerate(links):
+            now_valid = True
+            try:
+                async with session.head(url, timeout=aiohttp.ClientTimeout(total=8), allow_redirects=True) as resp:
+                    if resp.status in (404, 403, 410):
+                        now_valid = False
+            except Exception:
+                pass
+            async with AsyncSessionLocal() as inner_db:
+                link = await inner_db.get(ResourceLink, link_id)
+                if link:
+                    link.last_checked_at = _func.now()
+                    if not now_valid:
+                        link.is_valid = False
+                        invalid_count += 1
+                    await inner_db.commit()
+            if task_id:
+                task_registry.update_task(task_id, done=i + 1, message=f"已检测 {i+1}/{len(links)}，失效 {invalid_count} 条")
+
+    msg = f"检测完成：{len(links)} 条，失效 {invalid_count} 条"
+    if task_id:
+        task_registry.finish_task(task_id, "success", msg)
+    return {"checked": len(links), "invalid": invalid_count}
+
+
 @router.post("/check-links")
 async def check_links(
     max_per_run: int = 30,
     _=Depends(verify_admin),
 ):
     """C: 对网盘链接发送 HEAD 请求，将无法访问的标记为失效"""
-    from database import AsyncSessionLocal
     task_id = f"check_links_{int(asyncio.get_event_loop().time())}"
     task_registry.start_task(task_id, f"链接有效性检测（最多 {max_per_run} 条）", total=max_per_run)
-
-    async def _run():
-        import aiohttp
-        pan_types = {"pan_quark", "pan_baidu", "pan_aliyun", "direct"}
-        # 独立 session 加载链接列表
-        async with AsyncSessionLocal() as fetch_db:
-            stmt = (select(ResourceLink)
-                    .where(ResourceLink.is_valid == True, ResourceLink.link_type.in_(pan_types))
-                    .order_by(func.random())
-                    .limit(max_per_run))
-            link_rows = (await fetch_db.execute(stmt)).scalars().all()
-            links = [(lk.id, lk.url) for lk in link_rows]
-
-        invalid_count = 0
-        headers = {"User-Agent": "Mozilla/5.0"}
-        async with aiohttp.ClientSession(headers=headers) as session:
-            for i, (link_id, url) in enumerate(links):
-                try:
-                    async with session.head(url, timeout=aiohttp.ClientTimeout(total=8), allow_redirects=True) as resp:
-                        if resp.status in (404, 403, 410):
-                            async with AsyncSessionLocal() as inner_db:
-                                link = await inner_db.get(ResourceLink, link_id)
-                                if link:
-                                    link.is_valid = False
-                                    await inner_db.commit()
-                            invalid_count += 1
-                except Exception:
-                    pass
-                task_registry.update_task(task_id, done=i + 1, message=f"已检测 {i+1}/{len(links)}，失效 {invalid_count} 条")
-
-        task_registry.finish_task(task_id, "success", f"检测完成：{len(links)} 条，失效 {invalid_count} 条")
-
-
-    asyncio.create_task(_run())
+    asyncio.create_task(run_link_check(max_per_run, task_id))
     return {"message": f"链接检测已启动，任务 ID: {task_id}", "task_id": task_id}
 
 

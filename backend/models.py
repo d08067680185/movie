@@ -62,6 +62,7 @@ class ResourceLink(Base):
     password = Column(String(100))
     is_valid = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    last_checked_at = Column(DateTime(timezone=True))
 
     resource = relationship("Resource", back_populates="links")
     source = relationship("Source")
