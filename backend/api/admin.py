@@ -646,6 +646,7 @@ async def restore_backup(backup_file: str, _=Depends(verify_admin)):
     """E: 恢复数据库备份"""
     import os
     import shutil
+    from datetime import datetime
 
     backup_dir = "backups"
     backup_path = os.path.join(backup_dir, backup_file)

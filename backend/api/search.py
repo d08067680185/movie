@@ -310,7 +310,7 @@ async def get_related(resource_id: int, db: AsyncSession = Depends(get_db)):
 
     import re as _re
 
-    base = _re.sub(r'[\s\(（\[【第\d季部集合].*$', '', resource.title).strip()
+    base = _re.sub(r'(\s|[（(\[【]|第|\d|季|部|集|合集).*$', '', resource.title).strip()
     short = base[:4] if len(base) >= 4 else base
 
     related: list = []
@@ -330,7 +330,7 @@ async def get_related(resource_id: int, db: AsyncSession = Depends(get_db)):
     # 2. 同 genre（补足到 6 个）
     if len(related) < 6 and resource.genre:
         seen = {r.id for r in related} | {resource_id}
-        genre_word = resource.genre.split()[0] if resource.genre else ""
+        genre_word = _re.split(r'[、/,，]', resource.genre)[0].strip() if resource.genre else ""
         stmt2 = (
             select(Resource)
             .where(Resource.id.notin_(seen))
