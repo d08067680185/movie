@@ -868,7 +868,7 @@ export default function AdminPage() {
             {/* 链接有效性检测 */}
             <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
               <p className="text-sm font-medium mb-1">链接有效性检测</p>
-              <p className="text-xs mb-3" style={{ color: "#606070" }}>随机抽取 30 条网盘链接，发送 HEAD 请求，将失效链接标记为失效</p>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>优先检测最久未检测的 30 条网盘链接，发送 HEAD 请求，将失效链接标记为失效（另有定时任务每 2 小时自动批量检测 300 条）</p>
               <button onClick={triggerLinkCheck} disabled={linkCheckRunning}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
                 style={{ background: "linear-gradient(135deg, #0891b2 0%, #0e7490 100%)" }}>

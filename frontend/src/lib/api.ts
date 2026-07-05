@@ -22,6 +22,7 @@ export interface ResourceLink {
   format?: string;
   subtitle?: string;
   episode_info?: string;
+  episode_number?: number;
   password?: string;
   source_name?: string;
 }
