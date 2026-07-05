@@ -19,6 +19,11 @@ async def init_db():
     from models import Resource, Source, Tag, ResourceTag, SpiderLog, SearchLog  # noqa
     from sqlalchemy import text
     async with engine.begin() as conn:
+        # WAL 模式：读写可并发进行，大幅降低多写入者场景下的锁冲突/损坏概率
+        # （默认的 rollback journal 模式下，写入时会阻塞所有读，并发写更容易冲突）
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
+        await conn.execute(text("PRAGMA busy_timeout=5000"))
+
         await conn.run_sync(Base.metadata.create_all)
 
         # 旧库补字段：resource_links.last_checked_at（链接检测追踪用）

@@ -1,10 +1,17 @@
 #!/bin/bash
-# 部署前先跑这个：把生产库当前的 view_count 同步回本地，
-# 避免 git checkout + pull 用本地(通常是0)的访问量覆盖掉生产真实积累的访问量。
+# 部署前先跑这个：
+#   1) 对本地 db 做 WAL checkpoint（数据库现在是 WAL 模式，最新写入可能
+#      还停留在 movie_search.db-wal 里，不 checkpoint 的话 git 提交的
+#      主文件可能缺最新数据）
+#   2) 把生产库当前的 view_count 同步回本地，避免 git checkout + pull
+#      用本地(通常是0)的访问量覆盖掉生产真实积累的访问量。
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 PROD_HOST="xiaofengdai@100.85.130.18"
 PROD_DIR="~/Documents/claude/movie/backend"
+
+echo "对本地 db 做 WAL checkpoint..."
+sqlite3 "$ROOT/backend/movie_search.db" "PRAGMA wal_checkpoint(TRUNCATE);"
 
 echo "拉取生产库 view_count..."
 ssh "$PROD_HOST" "cd $PROD_DIR && sqlite3 -json movie_search.db \"SELECT id, view_count FROM resources WHERE view_count > 0;\"" > /tmp/prod_view_counts.json

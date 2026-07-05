@@ -35,6 +35,11 @@ async def lifespan(app: FastAPI):
         "interval",
         hours=settings.SPIDER_INTERVAL_HOURS,
         id="crawl_all",
+        # IntervalTrigger 默认"添加即执行"——不设置的话每次重启后端都会立刻
+        # 触发一次全量爬虫(实测:配置TMDB_API_KEY后每次重启会静默多导入
+        # 上百部电影)，容易让人误判"数据怎么变了"。延后10分钟，等服务稳定
+        # 再跑，且和下面的链接检测任务错开时间。
+        next_run_time=datetime.now() + timedelta(minutes=10),
     )
     scheduler.add_job(
         lambda: asyncio.create_task(asyncio.to_thread(backup_db)),
