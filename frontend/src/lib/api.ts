@@ -110,8 +110,42 @@ export async function searchResources(params: {
   return fetchApi(`/api/search?${sp.toString()}`);
 }
 
-export async function getHotResources(): Promise<ResourceCard[]> {
-  return fetchApi("/api/hot");
+export async function getHotResources(category?: string, limit?: number): Promise<ResourceCard[]> {
+  const sp = new URLSearchParams();
+  if (category) sp.set("category", category);
+  if (limit) sp.set("limit", String(limit));
+  const qs = sp.toString();
+  return fetchApi(`/api/hot${qs ? `?${qs}` : ""}`);
+}
+
+export interface LiveSearchItem {
+  title: string;
+  url: string;
+  password: string;
+  datetime?: string;
+  source: string;
+}
+
+export interface LiveSearchResult {
+  total: number;
+  types: { type: string; count: number }[];
+  by_type: Record<string, LiveSearchItem[]>;
+}
+
+// 全网搜聚合上游较慢（首次可达十几秒），单独用 35s 超时且不走缓存
+export async function liveSearch(q: string): Promise<LiveSearchResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 35000);
+  try {
+    const res = await fetch(`${API_BASE}/api/livesearch?q=${encodeURIComponent(q)}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function getStats(): Promise<Stats> {

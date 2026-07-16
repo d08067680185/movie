@@ -9,6 +9,7 @@ from database import init_db, AsyncSessionLocal
 from api.search import router as search_router
 from api.admin import router as admin_router
 from api.tmdb import router as tmdb_router
+from api.livesearch import router as livesearch_router
 from config import settings
 from spiders.scheduler import run_all_spiders
 from utils import backup_db
@@ -81,6 +82,7 @@ app.add_middleware(
 app.include_router(search_router)
 app.include_router(admin_router)
 app.include_router(tmdb_router)
+app.include_router(livesearch_router)
 
 
 @app.get("/health")

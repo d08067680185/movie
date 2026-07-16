@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
 import { searchResources, SearchResult } from "@/lib/api";
+import LiveSearchResults from "@/components/LiveSearchResults";
 
 const CATEGORIES = [
   { label: "全部", value: "" },
@@ -58,6 +59,7 @@ export default function SearchContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const q = searchParams.get("q") || "";
+  const mode = searchParams.get("mode") || "local"; // local=本地库 / live=全网实时聚合
   const category = searchParams.get("category") || "";
   const sort = searchParams.get("sort") || "popular";
   const page = parseInt(searchParams.get("page") || "1");
@@ -73,13 +75,15 @@ export default function SearchContent() {
   }, []);
 
   useEffect(() => {
+    if (q) {
+      saveToHistory(q);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHistory(readHistory());
+    }
+    if ((searchParams.get("mode") || "local") === "live") return; // 全网搜由 LiveSearchResults 自行请求
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
-    if (q) {
-      saveToHistory(q);
-      setHistory(readHistory());
-    }
     const year = searchParams.get("year");
     const genre = searchParams.get("genre") || undefined;
     const country = searchParams.get("country") || undefined;
@@ -194,7 +198,7 @@ export default function SearchContent() {
             {q ? (
               <h1 className="text-xl font-bold">
                 搜索 <span style={{ color: "#e50914" }}>{`"${q}"`}</span>
-                {result && (
+                {mode !== "live" && result && (
                   <span className="text-sm font-normal ml-2" style={{ color: "var(--text-secondary)" }}>
                     共 {result.total} 个结果
                   </span>
@@ -206,6 +210,38 @@ export default function SearchContent() {
               </h1>
             )}
           </div>
+        </div>
+
+        {/* 切换搜索源：本地库 / 全网实时聚合 */}
+        <div className="flex items-center gap-4 mb-5 pb-3" style={{ borderBottom: "1px solid var(--border)" }}>
+          <span className="text-sm font-bold flex items-center gap-1.5">
+            <span className="w-1 h-4 rounded" style={{ background: "#e50914" }} />
+            切换搜索源:
+          </span>
+          {[
+            { label: "本地搜", value: "" },
+            { label: "全网搜", value: "live" },
+          ].map((m) => {
+            const active = (mode === "live") === (m.value === "live");
+            return (
+              <button
+                key={m.label}
+                onClick={() => updateSearch({ mode: m.value })}
+                className="relative text-sm font-medium pb-1 transition-colors"
+                style={{ color: active ? "#e50914" : "var(--text-secondary)" }}
+              >
+                {m.label}
+                {active && (
+                  <span className="absolute left-0 right-0 -bottom-[1px] h-0.5 rounded" style={{ background: "#e50914" }} />
+                )}
+              </button>
+            );
+          })}
+          {mode === "live" && (
+            <span className="text-xs hidden sm:inline" style={{ color: "var(--text-muted)" }}>
+              实时聚合全网网盘分享，结果不入库
+            </span>
+          )}
         </div>
 
         {/* 搜索历史 */}
@@ -232,6 +268,10 @@ export default function SearchContent() {
           </div>
         )}
 
+        {mode === "live" ? (
+          <LiveSearchResults q={q} />
+        ) : (
+        <>
         {/* 分类 + 排序 + 筛选切换 */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
           {CATEGORIES.map((cat) => (
@@ -585,6 +625,8 @@ export default function SearchContent() {
               </div>
             )}
           </div>
+        )}
+        </>
         )}
       </div>
       <Footer />

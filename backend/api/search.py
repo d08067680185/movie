@@ -229,12 +229,19 @@ async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/hot", response_model=list)
-async def get_hot(db: AsyncSession = Depends(get_db)):
-    """获取热门资源"""
+async def get_hot(
+    category: Optional[str] = Query(None, max_length=20),
+    limit: int = Query(12, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取热门资源（可按分类过滤，用于分类热榜）"""
+    stmt = select(Resource)
+    if category:
+        stmt = stmt.where(Resource.category == CATEGORY_MAP.get(category, category))
     stmt = (
-        select(Resource)
+        stmt
         .order_by(Resource.view_count.desc(), Resource.rating.desc().nulls_last())
-        .limit(12)
+        .limit(limit)
     )
     resources = (await db.execute(stmt)).scalars().all()
 

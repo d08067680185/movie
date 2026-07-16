@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     LINK_CHECK_BATCH_SIZE: int = 300
     TELEGRAM_BOT_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
+    PANSOU_URL: str = "http://localhost:8888"
 
     class Config:
         env_file = ".env"

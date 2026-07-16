@@ -9,6 +9,20 @@ export const CATEGORY_LABELS: Record<string, string> = {
   电影: "电影", 电视剧: "电视剧", 动漫: "动漫", 综艺: "经典资源", 资源: "经典资源", 经典资源: "经典资源",
 };
 
+// 全网搜（PanSou）返回的网盘类型，顺序即展示顺序
+export const CLOUD_TYPE_LABELS: Record<string, { label: string; icon: string; app: string }> = {
+  quark:  { label: "夸克网盘", icon: "⚡", app: "夸克APP" },
+  baidu:  { label: "百度网盘", icon: "💾", app: "百度网盘APP" },
+  aliyun: { label: "阿里云盘", icon: "☁️", app: "阿里云盘APP" },
+  uc:     { label: "UC网盘",   icon: "🌀", app: "UC浏览器" },
+  xunlei: { label: "迅雷云盘", icon: "⛈️", app: "迅雷APP" },
+  "115":  { label: "115网盘",  icon: "📦", app: "115APP" },
+  "123":  { label: "123云盘",  icon: "🔢", app: "123云盘APP" },
+  tianyi: { label: "天翼云盘", icon: "📡", app: "天翼云盘APP" },
+  mobile: { label: "移动云盘", icon: "📱", app: "移动云盘APP" },
+  pikpak: { label: "PikPak",   icon: "🚀", app: "PikPak APP" },
+};
+
 export const LINK_TYPE_LABELS: Record<string, { label: string; bg: string; color: string; border: string; icon: string }> = {
   magnet:     { label: "磁力",     bg: "rgba(249,115,22,0.15)",  color: "#fb923c", border: "rgba(249,115,22,0.3)",  icon: "🧲" },
   pan_baidu:  { label: "百度网盘", bg: "rgba(59,130,246,0.15)",  color: "#60a5fa", border: "rgba(59,130,246,0.3)",  icon: "💾" },
