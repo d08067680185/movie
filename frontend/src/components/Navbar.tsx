@@ -6,6 +6,7 @@ import { Search, X, Sun, Moon, Menu, Heart } from "lucide-react";
 import { getFavoritesCount } from "@/lib/favorites";
 
 const MOBILE_CATEGORIES = [
+  { label: "💽 网盘搜索", val: "__pan" },
   { label: "🎬 电影", val: "movie" },
   { label: "📺 电视剧", val: "tv" },
   { label: "⛩️ 动漫", val: "anime" },
@@ -147,6 +148,15 @@ export default function Navbar() {
         </form>
 
         <div className="flex items-center gap-4 text-sm shrink-0">
+          <Link
+            href="/pan"
+            className="transition-colors hidden sm:block font-medium"
+            style={{ color: "var(--text-secondary)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#22d3ee")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
+          >
+            网盘搜索
+          </Link>
           {[
             { label: "动漫", val: "anime", color: "#f472b6" },
             { label: "电影", val: "movie", color: "#60a5fa" },
@@ -202,7 +212,7 @@ export default function Navbar() {
           {MOBILE_CATEGORIES.map(({ label, val }) => (
             <Link
               key={val}
-              href={`/search?category=${val}`}
+              href={val === "__pan" ? "/pan" : `/search?category=${val}`}
               onClick={() => setMobileOpen(false)}
               className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors"
               style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
