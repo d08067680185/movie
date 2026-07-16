@@ -53,11 +53,14 @@ def _normalize(data: dict) -> dict:
             if not url or url in seen:
                 continue
             seen.add(url)
-            note = re.sub(r"\s+", " ", (it.get("note") or "").strip())
+            # 插件源的 note 可能带 <span> 高亮标签，先去 HTML 再压空白
+            note = re.sub(r"<[^>]+>", "", it.get("note") or "")
+            note = re.sub(r"\s+", " ", note).strip()
+            password = (it.get("password") or "").strip().rstrip("#")
             items.append({
                 "title": note or url,
                 "url": url,
-                "password": (it.get("password") or "").strip(),
+                "password": password,
                 "datetime": it.get("datetime"),
                 "source": it.get("source") or "",
             })
