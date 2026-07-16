@@ -141,6 +141,19 @@ export default function HomeContent() {
                 搜索
               </button>
             </div>
+            {/* 全网搜引导 */}
+            <div className="flex justify-center mt-3">
+              <button
+                type="button"
+                onClick={() => router.push(q.trim() ? `/pan?q=${encodeURIComponent(q.trim())}` : "/pan")}
+                className="text-xs sm:text-sm transition-colors"
+                style={{ color: "var(--text-muted)" }}
+                onMouseEnter={(e) => (e.currentTarget.style.color = "#22d3ee")}
+                onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-muted)")}
+              >
+                本地库找不到？🌐 全网搜网盘资源 →
+              </button>
+            </div>
           </form>
 
           {/* 热门搜索 */}

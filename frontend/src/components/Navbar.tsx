@@ -4,6 +4,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState, useEffect, useRef, FormEvent } from "react";
 import { Search, X, Sun, Moon, Menu, Heart } from "lucide-react";
 import { getFavoritesCount } from "@/lib/favorites";
+import { getPanFavoritesCount } from "@/lib/panFavorites";
+
+const totalFavCount = () => getFavoritesCount() + getPanFavoritesCount();
 
 const MOBILE_CATEGORIES = [
   { label: "💽 网盘搜索", val: "__pan" },
@@ -36,7 +39,7 @@ export default function Navbar() {
         document.documentElement.setAttribute("data-theme", saved);
       }
     } catch {}
-    setFavCount(getFavoritesCount());
+    setFavCount(totalFavCount());
   }, []);
 
   // 按 / 聚焦搜索框，Esc 失去焦点
@@ -57,7 +60,7 @@ export default function Navbar() {
   // 监听收藏数变化事件
   useEffect(() => {
     function onFavoritesChanged() {
-      setFavCount(getFavoritesCount());
+      setFavCount(totalFavCount());
     }
     window.addEventListener("favoritesChanged", onFavoritesChanged);
     return () => window.removeEventListener("favoritesChanged", onFavoritesChanged);

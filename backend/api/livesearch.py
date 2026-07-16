@@ -32,6 +32,9 @@ _CACHE_TTL = 300.0
 _CACHE_MAX = 200
 _lock = asyncio.Lock()
 
+# 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
+_stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0}
+
 
 def _clean_url(raw: str) -> Optional[str]:
     """pansou 的 url 字段偶尔混入换行+标签文字，只保留第一个 URL 本体"""
@@ -85,6 +88,20 @@ async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
     return _normalize(body.get("data") or body)
 
 
+@router.get("/livesearch/health")
+async def livesearch_health():
+    """全网搜依赖探活 + 调用统计（admin 监控面板用，无敏感信息）"""
+    pansou = "down"
+    try:
+        async with httpx.AsyncClient(timeout=3.0) as client:
+            resp = await client.get(f"{settings.PANSOU_URL}/api/health")
+            if resp.status_code == 200:
+                pansou = "up"
+    except httpx.HTTPError:
+        pass
+    return {"pansou": pansou, "cache_entries": len(_cache), **_stats}
+
+
 @router.get("/livesearch")
 async def livesearch(
     q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
@@ -96,14 +113,17 @@ async def livesearch(
     if not keyword:
         raise HTTPException(status_code=400, detail="关键词不能为空")
 
+    _stats["requests"] += 1
     now = time.time()
     cached = _cache.get(keyword)
     if cached and not refresh and (now - cached[0]) < _CACHE_TTL:
+        _stats["cache_hits"] += 1
         payload = cached[1]
     else:
         try:
             payload = await _fetch_pansou(keyword, refresh)
         except httpx.HTTPError as e:
+            _stats["upstream_errors"] += 1
             logger.warning("pansou 请求失败: %s", e)
             raise HTTPException(status_code=502, detail="全网搜服务暂时不可用，请稍后重试")
         async with _lock:

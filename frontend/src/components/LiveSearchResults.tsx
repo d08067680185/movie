@@ -66,14 +66,26 @@ function HotRankings() {
   );
 }
 
+const PAGE_SIZE = 20;
+
+function formatDate(dt?: string): string {
+  if (!dt) return "";
+  const d = new Date(dt);
+  // 上游偶尔给 0001-01-01 之类的占位时间，不展示
+  if (isNaN(d.getTime()) || d.getFullYear() < 1990) return "";
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export default function LiveSearchResults({ q }: { q: string }) {
   const [result, setResult] = useState<LiveSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeType, setActiveType] = useState<string>("");
   const [modalItem, setModalItem] = useState<{ item: LiveSearchItem; type: string } | null>(null);
+  const [sortBy, setSortBy] = useState<"default" | "newest">("default");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  useEffect(() => {
+  function doSearch(refresh = false) {
     if (!q.trim()) {
       setResult(null);
       return;
@@ -81,13 +93,18 @@ export default function LiveSearchResults({ q }: { q: string }) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    setActiveType("");
-    liveSearch(q)
+    if (!refresh) setActiveType("");
+    setVisibleCount(PAGE_SIZE);
+    liveSearch(q, refresh)
       .then((r) => { if (!cancelled) setResult(r); })
       .catch(() => { if (!cancelled) setError("全网搜服务暂时不可用，请稍后重试"); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [q]);
+  }
+
+  useEffect(() => {
+    return doSearch(false);
+  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!q.trim()) {
     return (
@@ -101,7 +118,12 @@ export default function LiveSearchResults({ q }: { q: string }) {
 
   const types = result?.types || [];
   const shownType = activeType || (types[0]?.type ?? "");
-  const items = result?.by_type[shownType] || [];
+  const allItems = result?.by_type[shownType] || [];
+  const sortedItems = sortBy === "newest"
+    ? [...allItems].sort((a, b) => (b.datetime || "").localeCompare(a.datetime || ""))
+    : allItems;
+  const items = sortedItems.slice(0, visibleCount);
+  const remaining = sortedItems.length - items.length;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[170px_minmax(0,1fr)_240px] gap-5">
@@ -126,7 +148,7 @@ export default function LiveSearchResults({ q }: { q: string }) {
             return (
               <button
                 key={t.type}
-                onClick={() => setActiveType(t.type)}
+                onClick={() => { setActiveType(t.type); setVisibleCount(PAGE_SIZE); }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-all text-left"
                 style={active
                   ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", fontWeight: 600 }
@@ -160,10 +182,35 @@ export default function LiveSearchResults({ q }: { q: string }) {
           </div>
         ) : result && result.total > 0 ? (
           <>
-            <p className="text-center text-sm py-2 mb-2" style={{ color: "var(--text-secondary)" }}>
-              为您找到【<span style={{ color: "#e50914", fontWeight: 600 }}>{q}</span>】相关资源{" "}
-              <span style={{ color: "#e50914", fontWeight: 600 }}>{result.total}</span> 条
-            </p>
+            <div className="flex flex-col sm:flex-row items-center gap-2 py-2 mb-2">
+              <p className="text-sm flex-1 text-center sm:text-left" style={{ color: "var(--text-secondary)" }}>
+                为您找到【<span style={{ color: "#e50914", fontWeight: 600 }}>{q}</span>】相关资源{" "}
+                <span style={{ color: "#e50914", fontWeight: 600 }}>{result.total}</span> 条
+              </p>
+              <div className="flex items-center gap-1.5">
+                {([["default", "默认"], ["newest", "最新"]] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => { setSortBy(v); setVisibleCount(PAGE_SIZE); }}
+                    className="px-2.5 py-1 rounded text-xs transition-all"
+                    style={sortBy === v
+                      ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)" }
+                      : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                  >
+                    {label}
+                  </button>
+                ))}
+                <button
+                  onClick={() => doSearch(true)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-all"
+                  style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                  title="绕过缓存重新聚合"
+                >
+                  <RefreshCw size={11} />
+                  刷新
+                </button>
+              </div>
+            </div>
             <ul>
               {items.map((item, i) => (
                 <li
@@ -175,10 +222,13 @@ export default function LiveSearchResults({ q }: { q: string }) {
                     <p className="text-sm font-medium leading-relaxed break-all" style={{ color: "var(--text-primary)" }}>
                       {item.title}
                     </p>
-                    <p className="text-xs mt-1.5 flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
-                      <Globe size={11} />
-                      来源: {(CLOUD_TYPE_LABELS[shownType] || { label: shownType }).label}
-                      {item.password && <span className="ml-2">提取码: {item.password}</span>}
+                    <p className="text-xs mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-0.5" style={{ color: "var(--text-muted)" }}>
+                      <span className="flex items-center gap-1">
+                        <Globe size={11} />
+                        来源: {(CLOUD_TYPE_LABELS[shownType] || { label: shownType }).label}
+                      </span>
+                      {item.password && <span>提取码: {item.password}</span>}
+                      {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
                     </p>
                   </div>
                   <button
@@ -191,6 +241,17 @@ export default function LiveSearchResults({ q }: { q: string }) {
                 </li>
               ))}
             </ul>
+            {remaining > 0 && (
+              <div className="flex justify-center py-4">
+                <button
+                  onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+                  className="px-6 py-2 rounded-lg text-sm transition-all"
+                  style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                >
+                  加载更多（剩 {remaining} 条）
+                </button>
+              </div>
+            )}
           </>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center" style={{ color: "var(--text-muted)" }}>
@@ -200,10 +261,13 @@ export default function LiveSearchResults({ q }: { q: string }) {
         )}
       </div>
 
-      {/* 右侧：分类热榜 */}
+      {/* 右侧：分类热榜（移动端移到结果下方） */}
       <aside className="hidden lg:block lg:sticky lg:top-20 lg:self-start">
         <HotRankings />
       </aside>
+      <div className="block lg:hidden">
+        <HotRankings />
+      </div>
 
       {modalItem && (
         <PanLinkModal

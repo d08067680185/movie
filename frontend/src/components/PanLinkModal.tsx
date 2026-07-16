@@ -1,10 +1,11 @@
 "use client";
 import { useEffect } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { X, ExternalLink, Copy, Check } from "lucide-react";
+import { X, ExternalLink, Copy, Check, Heart } from "lucide-react";
 import { useState } from "react";
 import { LiveSearchItem } from "@/lib/api";
 import { CLOUD_TYPE_LABELS } from "@/lib/utils";
+import { isPanFavorited, togglePanFavorite } from "@/lib/panFavorites";
 
 interface Props {
   item: LiveSearchItem;
@@ -14,7 +15,13 @@ interface Props {
 
 export default function PanLinkModal({ item, cloudType, onClose }: Props) {
   const [copied, setCopied] = useState(false);
+  const [faved, setFaved] = useState(() => isPanFavorited(item.url));
   const meta = CLOUD_TYPE_LABELS[cloudType] || { label: "网盘", icon: "🔗", app: "网盘APP" };
+
+  function handleFav() {
+    setFaved(togglePanFavorite(item, cloudType));
+    window.dispatchEvent(new Event("favoritesChanged"));
+  }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -92,6 +99,19 @@ export default function PanLinkModal({ item, cloudType, onClose }: Props) {
         </p>
 
         <div className="flex gap-2 mb-4">
+          <button
+            onClick={handleFav}
+            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all"
+            style={{
+              background: faved ? "rgba(229,9,20,0.12)" : "var(--bg-input)",
+              border: faved ? "1px solid rgba(229,9,20,0.3)" : "1px solid var(--border-input)",
+              color: faved ? "#e50914" : "var(--text-secondary)",
+            }}
+            title={faved ? "取消收藏" : "收藏此链接"}
+          >
+            <Heart size={14} fill={faved ? "#e50914" : "none"} />
+            {faved ? "已收藏" : "收藏"}
+          </button>
           <button
             onClick={copyLink}
             className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium transition-all"

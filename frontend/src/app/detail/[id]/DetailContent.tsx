@@ -458,6 +458,15 @@ export default function DetailContent({ id }: Props) {
             >
               {resource.links.length} 个链接
             </span>
+            {resource.links.length > 0 && (
+              <Link
+                href={`/pan?q=${encodeURIComponent(resource.title)}`}
+                className="ml-auto text-xs font-medium transition-colors"
+                style={{ color: "#22d3ee" }}
+              >
+                🌐 全网搜更多 →
+              </Link>
+            )}
           </div>
 
           {resource.links.length === 0 ? (
@@ -467,6 +476,14 @@ export default function DetailContent({ id }: Props) {
             >
               <Download size={40} className="mb-4 opacity-30" />
               <p>暂无下载资源</p>
+              <p className="text-xs mt-2 mb-5">本地库暂时没有收录，可以去全网实时聚合搜索试试</p>
+              <Link
+                href={`/pan?q=${encodeURIComponent(resource.title)}`}
+                className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
+                style={{ background: "linear-gradient(135deg, #e50914 0%, #c40812 100%)" }}
+              >
+                🌐 去全网搜『{resource.title}』
+              </Link>
             </div>
           ) : (
             <div className="space-y-6">

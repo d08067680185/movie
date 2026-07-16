@@ -133,11 +133,11 @@ export interface LiveSearchResult {
 }
 
 // 全网搜聚合上游较慢（首次可达十几秒），单独用 35s 超时且不走缓存
-export async function liveSearch(q: string): Promise<LiveSearchResult> {
+export async function liveSearch(q: string, refresh = false): Promise<LiveSearchResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 35000);
   try {
-    const res = await fetch(`${API_BASE}/api/livesearch?q=${encodeURIComponent(q)}`, {
+    const res = await fetch(`${API_BASE}/api/livesearch?q=${encodeURIComponent(q)}${refresh ? "&refresh=true" : ""}`, {
       cache: "no-store",
       signal: controller.signal,
     });

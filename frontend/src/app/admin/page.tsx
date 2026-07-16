@@ -69,6 +69,7 @@ export default function AdminPage() {
   const [spiderClasses, setSpiderClasses] = useState<string[]>([]);
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [statsDetail, setStatsDetail] = useState<{ today_resources: number; today_links: number } | null>(null);
+  const [panHealth, setPanHealth] = useState<{ pansou: string; cache_entries: number; requests: number; cache_hits: number; upstream_errors: number } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", spider_class: "demo", base_url: "", config: "{}" });
   const [msg, setMsg] = useState("");
@@ -199,6 +200,14 @@ export default function AdminPage() {
       const k = await keyRes.json();
       setTmdbKeyConfigured(k.configured);
     }
+    loadPanHealth();
+  }
+
+  async function loadPanHealth() {
+    try {
+      const res = await fetch(`${API}/api/livesearch/health`);
+      if (res.ok) setPanHealth(await res.json());
+    } catch { setPanHealth(null); }
   }
 
   async function toggleSource(id: number) {
@@ -795,6 +804,40 @@ export default function AdminPage() {
                       {label === "下载链接" && `今日: +${statsDetail.today_links}`}
                     </div>
                   )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ══ 全网搜（PanSou）监控 ══ */}
+        {panHealth && (
+          <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: `1px solid ${panHealth.pansou === "up" ? "rgba(255,255,255,0.08)" : "rgba(248,113,113,0.5)"}` }}>
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-2.5 h-2.5 rounded-full inline-block"
+                  style={{ background: panHealth.pansou === "up" ? "#4ade80" : "#f87171" }}
+                />
+                <h2 className="text-base font-bold">全网搜监控</h2>
+                <span className="text-xs px-2 py-0.5 rounded-full" style={panHealth.pansou === "up"
+                  ? { background: "rgba(74,222,128,0.15)", color: "#4ade80" }
+                  : { background: "rgba(248,113,113,0.15)", color: "#f87171" }}>
+                  PanSou {panHealth.pansou === "up" ? "在线" : "离线"}
+                </span>
+              </div>
+              <button onClick={loadPanHealth} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#606070" }}>刷新</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center">
+              {[
+                { label: "启动后请求数", val: panHealth.requests },
+                { label: "缓存命中", val: panHealth.cache_hits },
+                { label: "缓存条目", val: panHealth.cache_entries },
+                { label: "上游错误", val: panHealth.upstream_errors, warn: panHealth.upstream_errors > 0 },
+              ].map(({ label, val, warn }) => (
+                <div key={label} className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <div className="text-lg font-bold" style={{ color: warn ? "#f87171" : "#f0f0f5" }}>{val}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "#606070" }}>{label}</div>
                 </div>
               ))}
             </div>
