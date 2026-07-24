@@ -21,9 +21,12 @@ export async function generateMetadata({
     : catLabel
     ? `${catLabel}资源 - 影视搜索`
     : "搜索影视资源 - 影视搜索";
+  const description = `搜索${sp.q || catLabel || "影视"}资源，提供磁力链接、网盘资源下载`;
   return {
     title,
-    description: `搜索${sp.q || catLabel || "影视"}资源，提供磁力链接、网盘资源下载`,
+    description,
+    openGraph: { title, description, type: "website" },
+    twitter: { card: "summary", title, description },
   };
 }
 

@@ -12,7 +12,6 @@ const nextConfig: NextConfig = {
       { protocol: "http",  hostname: "lain.bgm.tv" },
       { protocol: "https", hostname: "lain.bgm.tv" },
     ],
-    unoptimized: true,
   },
   async rewrites() {
     return [

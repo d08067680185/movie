@@ -35,6 +35,12 @@ _lock = asyncio.Lock()
 # 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
 _stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0}
 
+# 简单熔断：连续失败达到阈值后，短时间内直接快速失败，避免请求堆积等 PanSou 卡死
+_CIRCUIT_FAIL_THRESHOLD = 3
+_CIRCUIT_COOLDOWN = 30.0
+_circuit_failures = 0
+_circuit_open_until = 0.0
+
 
 def _clean_url(raw: str) -> Optional[str]:
     """pansou 的 url 字段偶尔混入换行+标签文字，只保留第一个 URL 本体"""
@@ -79,13 +85,30 @@ async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
     params = {"kw": keyword, "res": "merge"}
     if refresh:
         params["refresh"] = "true"
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(f"{settings.PANSOU_URL}/api/search", params=params)
         resp.raise_for_status()
         body = resp.json()
     if body.get("code") not in (0, None):
         raise HTTPException(status_code=502, detail=f"pansou error: {body.get('message')}")
     return _normalize(body.get("data") or body)
+
+
+def _circuit_is_open() -> bool:
+    return time.time() < _circuit_open_until
+
+
+def _circuit_record_failure():
+    global _circuit_failures, _circuit_open_until
+    _circuit_failures += 1
+    if _circuit_failures >= _CIRCUIT_FAIL_THRESHOLD:
+        _circuit_open_until = time.time() + _CIRCUIT_COOLDOWN
+        logger.warning("pansou 连续失败 %d 次，熔断 %.0f 秒", _circuit_failures, _CIRCUIT_COOLDOWN)
+
+
+def _circuit_record_success():
+    global _circuit_failures
+    _circuit_failures = 0
 
 
 @router.get("/livesearch/health")
@@ -99,7 +122,12 @@ async def livesearch_health():
                 pansou = "up"
     except httpx.HTTPError:
         pass
-    return {"pansou": pansou, "cache_entries": len(_cache), **_stats}
+    return {
+        "pansou": pansou,
+        "cache_entries": len(_cache),
+        "circuit_open": _circuit_is_open(),
+        **_stats,
+    }
 
 
 @router.get("/livesearch")
@@ -120,10 +148,15 @@ async def livesearch(
         _stats["cache_hits"] += 1
         payload = cached[1]
     else:
+        if _circuit_is_open():
+            _stats["upstream_errors"] += 1
+            raise HTTPException(status_code=503, detail="全网搜服务暂时不可用，请稍后重试")
         try:
             payload = await _fetch_pansou(keyword, refresh)
+            _circuit_record_success()
         except httpx.HTTPError as e:
             _stats["upstream_errors"] += 1
+            _circuit_record_failure()
             logger.warning("pansou 请求失败: %s", e)
             raise HTTPException(status_code=502, detail="全网搜服务暂时不可用，请稍后重试")
         async with _lock:

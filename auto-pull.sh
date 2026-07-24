@@ -109,4 +109,40 @@ done
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 容器启动超时，请检查 docker logs" >> "$LOG_FILE"
 osascript -e 'display notification "movie 更新后容器启动超时，请检查 docker logs" with title "自动同步告警" sound name "Basso"' 2>/dev/null || true
+"$HOME/bin/kids-alert.sh" movie-healthcheck "movie 健康检查超时，正在尝试回滚到 $LOCAL" "$(tail -5 "$LOG_FILE")"
+
+# ── 自动回滚：仅当这次部署没有变更数据库文件时才自动回滚代码到部署前的 commit，
+# 重新构建重启。数据库有变更的场景风险更高（回滚代码但保留新库可能导致 schema 不一致），
+# 只告警不自动处理，交给人工判断。
+if echo "$CHANGED" | grep -qx "$DB"; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] 本次部署含数据库变更，跳过自动回滚，需人工处理" >> "$LOG_FILE"
+    exit 1
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 回滚代码到 $LOCAL 并重新构建..." >> "$LOG_FILE"
+if ! git reset --hard "$LOCAL" >> "$LOG_FILE" 2>&1; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 回滚 git reset 失败，需人工处理" >> "$LOG_FILE"
+    "$HOME/bin/kids-alert.sh" movie-rollback "movie 自动回滚失败(git reset)，需人工处理" "$(tail -5 "$LOG_FILE")"
+    exit 1
+fi
+
+if ! docker compose build >> "$LOG_FILE" 2>&1; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 回滚版本构建失败，需人工处理" >> "$LOG_FILE"
+    "$HOME/bin/kids-alert.sh" movie-rollback "movie 回滚版本构建失败，需人工处理" "$(tail -5 "$LOG_FILE")"
+    exit 1
+fi
+docker compose up -d >> "$LOG_FILE" 2>&1
+
+for i in $(seq 1 30); do
+    sleep 2
+    code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "http://127.0.0.1:${LOCAL_PORT}/api/stats" 2>/dev/null)
+    if [ "$code" = "200" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ✅ 已回滚到 $LOCAL，服务恢复健康" >> "$LOG_FILE"
+        osascript -e 'display notification "movie 新版本超时，已自动回滚到上一版本" with title "自动同步告警" sound name "Basso"' 2>/dev/null || true
+        exit 1
+    fi
+done
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 回滚后仍不健康，需人工介入" >> "$LOG_FILE"
+"$HOME/bin/kids-alert.sh" movie-rollback "movie 回滚后服务仍不健康，需人工介入" "$(tail -5 "$LOG_FILE")"
 exit 1

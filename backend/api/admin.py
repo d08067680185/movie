@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
@@ -10,16 +10,20 @@ from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
 import tasks as task_registry
 from utils import backup_db, list_backups, send_telegram
+from auth import verify_password, hash_password, check_rate_limit, record_failure, record_success
 import asyncio
 import re
-import secrets
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
-def verify_admin(x_admin_token: Optional[str] = Header(None)):
-    if not secrets.compare_digest(x_admin_token or "", settings.ADMIN_PASSWORD):
+def verify_admin(request: Request, x_admin_token: Optional[str] = Header(None)):
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
+    if not settings.ADMIN_PASSWORD_HASH or not verify_password(x_admin_token or "", settings.ADMIN_PASSWORD_HASH):
+        record_failure(client_ip)
         raise HTTPException(status_code=401, detail="Unauthorized")
+    record_success(client_ip)
     return True
 
 
@@ -357,10 +361,12 @@ async def change_password(
     _=Depends(verify_admin),
 ):
     new_password: str = payload.get("new_password", "")
-    """修改管理员密码，写入 .env 并更新内存"""
+    """修改管理员密码，写入 .env（哈希）并更新内存"""
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="密码至少 6 位")
-    settings.ADMIN_PASSWORD = new_password
+    new_hash = hash_password(new_password)
+    settings.ADMIN_PASSWORD_HASH = new_hash
+    settings.ADMIN_PASSWORD = None
     env_path = ".env"
     try:
         import os
@@ -370,12 +376,14 @@ async def change_password(
             with open(env_path, "r") as f:
                 for line in f:
                     if line.startswith("ADMIN_PASSWORD="):
-                        lines.append(f"ADMIN_PASSWORD={new_password}\n")
+                        continue  # 不再存明文
+                    if line.startswith("ADMIN_PASSWORD_HASH="):
+                        lines.append(f"ADMIN_PASSWORD_HASH={new_hash}\n")
                         found = True
                     else:
                         lines.append(line)
         if not found:
-            lines.append(f"ADMIN_PASSWORD={new_password}\n")
+            lines.append(f"ADMIN_PASSWORD_HASH={new_hash}\n")
         with open(env_path, "w") as f:
             f.writelines(lines)
         return {"message": "密码已修改，已持久化到 .env"}

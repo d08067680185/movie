@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     TMDB_BASE_URL: str = "https://api.themoviedb.org/3"
     TMDB_IMAGE_BASE: str = "https://image.tmdb.org/t/p"
     SECRET_KEY: str = "your-secret-key-change-in-prod"
-    ADMIN_PASSWORD: str = "admin123"
+    ADMIN_PASSWORD: Optional[str] = "admin123"  # 明文兜底，仅在无 ADMIN_PASSWORD_HASH 时使用，首次启动会自动迁移为哈希
+    ADMIN_PASSWORD_HASH: Optional[str] = None
     CORS_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
     SPIDER_INTERVAL_HOURS: int = 6
     MAX_PAGES_PER_SOURCE: int = 10

@@ -2,8 +2,24 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "影视搜索 - 多源影视资源聚合平台",
+  metadataBase: new URL("https://movie.mxzshs.com"),
+  title: {
+    default: "影视搜索 - 多源影视资源聚合平台",
+    template: "%s - 影视搜索",
+  },
   description: "搜索电影、电视剧、动漫资源，提供磁力链接、网盘资源下载",
+  openGraph: {
+    siteName: "影视搜索",
+    type: "website",
+    locale: "zh_CN",
+    title: "影视搜索 - 多源影视资源聚合平台",
+    description: "搜索电影、电视剧、动漫资源，提供磁力链接、网盘资源下载",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "影视搜索 - 多源影视资源聚合平台",
+    description: "搜索电影、电视剧、动漫资源，提供磁力链接、网盘资源下载",
+  },
 };
 
 export default function RootLayout({

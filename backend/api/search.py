@@ -25,6 +25,11 @@ _stats_cache_ts: float = 0.0
 _STATS_TTL = 60.0
 
 
+def build_fts_query(keyword: str) -> str:
+    """把用户输入包成 FTS5 短语查询，转义内部双引号防止破坏 MATCH 语法/注入操作符。"""
+    return '"' + keyword.replace('"', '""') + '"'
+
+
 async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
     """批量获取资源的有效链接数量"""
     if not resource_ids:
@@ -61,7 +66,7 @@ async def search(
         keyword = q.strip()
         if len(keyword) >= 3:
             # FTS5(trigram) 索引查询：显著快于全字段 ilike 全表扫描
-            fts_query = '"' + keyword.replace('"', '""') + '"'
+            fts_query = build_fts_query(keyword)
             fts_rows = (
                 await db.execute(
                     text("SELECT rowid FROM resources_fts WHERE resources_fts MATCH :kw"),

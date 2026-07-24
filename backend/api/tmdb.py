@@ -5,24 +5,18 @@ POST /api/tmdb/enrich/{resource_id} — 用 TMDb 数据补全本地资源
 需要 config.py 中设置 TMDB_API_KEY
 """
 import httpx
-import secrets
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import Resource
 from config import settings
 from typing import Optional
+from api.admin import verify_admin
 
 router = APIRouter(prefix="/api/tmdb", tags=["tmdb"])
 
 TMDB_BASE = "https://api.themoviedb.org/3"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
-
-
-def verify_admin(x_admin_token: Optional[str] = Header(None)):
-    if not secrets.compare_digest(x_admin_token or "", settings.ADMIN_PASSWORD):
-        raise HTTPException(status_code=401)
-    return True
 
 
 async def tmdb_get(path: str, params: dict = None):

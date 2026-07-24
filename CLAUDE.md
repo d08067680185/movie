@@ -45,6 +45,9 @@ cd backend
 # Dev server (auto-reload)
 venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
+# Run tests (also runs in CI on push/PR to main; see .github/workflows/ci.yml)
+venv/bin/python -m pytest tests/ -q
+
 # Syntax check all backend files
 venv/bin/python -c "import ast; [ast.parse(open(f).read()) or print('✓',f) for f in ['tasks.py','utils.py','config.py','main.py','api/admin.py','api/search.py','spiders/scheduler.py','models.py','database.py']]"
 
@@ -120,12 +123,17 @@ Frontend: `src/lib/utils.ts:CATEGORY_LABELS` has both English + Chinese keys; co
 
 ```bash
 TMDB_API_KEY=<key>              # Optional; enables TMDb batch import
-ADMIN_PASSWORD=<password>       # Default: admin123 (change in production!)
+ADMIN_PASSWORD=<password>       # First-boot only: plaintext seed, default admin123 (change before first run in production!)
+ADMIN_PASSWORD_HASH=<bcrypt>    # Auto-generated on first startup from ADMIN_PASSWORD, which is then erased from .env
 CORS_ORIGINS=https://movie.mxzshs.com,https://localhost:3000
 SPIDER_INTERVAL_HOURS=6         # Auto-crawl every N hours
 TELEGRAM_BOT_TOKEN=<token>      # Optional; for error notifications
 TELEGRAM_CHAT_ID=<id>           # Required if bot token set
 ```
+
+**Admin auth (2026-07-24 security hardening)**: `X-Admin-Token` is compared against a bcrypt hash (`ADMIN_PASSWORD_HASH`), never plaintext. On first startup, `auth.py:migrate_plaintext_password()` hashes whatever `ADMIN_PASSWORD` is set (env var or `.env`, default `admin123`), writes `ADMIN_PASSWORD_HASH` into `.env`, and deletes the plaintext line — the plaintext is not recoverable afterward. `POST /api/admin/change-password` also stores only the hash. Failed-token attempts are rate-limited per IP (`auth.py`: 10 failures / 5 min → 429 for 5 min).
+
+**Implication for one-off scripts** (`import_movies.py`, `enrich_*.py`, `reverify_review_groups.py`): they read the plaintext token from `ADMIN_PASSWORD` env var or `.env`. Since `.env` no longer holds plaintext after first boot, you must pass it explicitly when running them, e.g. `ADMIN_PASSWORD=<your actual password> venv/bin/python enrich_movies.py`.
 
 ### NEXT_PUBLIC_API_URL Must Use `??` Not `||`
 
@@ -278,7 +286,7 @@ Edit `frontend/src/app/admin/page.tsx` directly (no sub-components). Rebuild wit
 
 ```bash
 # Mock request to backend (from terminal)
-curl -H "X-Admin-Token: admin123" http://localhost:8000/api/admin/sources
+curl -H "X-Admin-Token: <your actual admin password>" http://localhost:8000/api/admin/sources
 
 # Check live logs (Docker)
 ssh xiaofengdai@100.85.130.18 "/usr/local/bin/docker compose -f ~/Documents/claude/movie/docker-compose.yml logs -f backend"
