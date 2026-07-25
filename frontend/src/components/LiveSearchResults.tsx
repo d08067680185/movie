@@ -76,7 +76,13 @@ function formatDate(dt?: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function LiveSearchResults({ q }: { q: string }) {
+interface Props {
+  q: string;
+  hotWords?: { keyword: string; count: number }[];
+  onPickHotWord?: (keyword: string) => void;
+}
+
+export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: Props) {
   const [result, setResult] = useState<LiveSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -257,6 +263,21 @@ export default function LiveSearchResults({ q }: { q: string }) {
           <div className="flex flex-col items-center justify-center py-20 text-center" style={{ color: "var(--text-muted)" }}>
             <Search size={40} className="mb-4 opacity-30" />
             <p>全网未找到相关资源，换个关键词试试</p>
+            {hotWords.length > 0 && (
+              <div className="flex flex-wrap items-center justify-center gap-2 mt-5 max-w-md">
+                <span className="text-xs">热门:</span>
+                {hotWords.slice(0, 8).map((w) => (
+                  <button
+                    key={w.keyword}
+                    onClick={() => onPickHotWord?.(w.keyword)}
+                    className="px-3 py-1 rounded-full text-xs transition-all"
+                    style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                  >
+                    {w.keyword}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

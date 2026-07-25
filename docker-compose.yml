@@ -5,13 +5,17 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend/movie_search.db:/app/movie_search.db
+      # 持久化 backend/.env：ADMIN_PASSWORD_HASH 写在这里才能扛过容器重建。
+      # 注意这个文件与仓库根目录的 .env（docker-compose 变量替换用）是两个不同文件。
+      - ./backend/.env:/app/.env
+      - ./backend/downloads:/app/downloads
     environment:
       - DATABASE_URL=sqlite+aiosqlite:///./movie_search.db
       - TMDB_API_KEY=${TMDB_API_KEY:-}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
       - CORS_ORIGINS=${CORS_ORIGINS:-https://movie.mxzshs.com}
       - SPIDER_INTERVAL_HOURS=${SPIDER_INTERVAL_HOURS:-6}
       - PANSOU_URL=http://pansou:8888
+      - DOWNLOAD_DIR=/app/downloads
       - TZ=Asia/Shanghai
     expose:
       - "8000"

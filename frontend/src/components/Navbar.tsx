@@ -10,6 +10,7 @@ const totalFavCount = () => getFavoritesCount() + getPanFavoritesCount();
 
 const MOBILE_CATEGORIES = [
   { label: "💽 网盘搜索", val: "__pan" },
+  { label: "⬇️ 视频下载", val: "__download" },
   { label: "🎬 电影", val: "movie" },
   { label: "📺 电视剧", val: "tv" },
   { label: "⛩️ 动漫", val: "anime" },
@@ -99,7 +100,7 @@ export default function Navbar() {
       }}
       className="sticky top-0 z-50"
     >
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-2 sm:gap-6">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 h-14 flex items-center gap-1.5 sm:gap-6">
         {/* 移动端汉堡按钮 */}
         <button
           className="sm:hidden p-1.5 rounded-lg transition-colors shrink-0"
@@ -117,7 +118,7 @@ export default function Navbar() {
           影视搜索
         </Link>
 
-        <form onSubmit={handleSearch} className="flex-1 max-w-xl">
+        <form onSubmit={handleSearch} className="flex-1 min-w-0 max-w-xl">
           <div
             className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg search-glow"
             style={{
@@ -150,7 +151,7 @@ export default function Navbar() {
           </div>
         </form>
 
-        <div className="flex items-center gap-4 text-sm shrink-0">
+        <div className="flex items-center gap-2.5 sm:gap-4 text-sm shrink-0">
           <Link
             href="/pan"
             className="transition-colors hidden sm:block font-medium"
@@ -159,6 +160,15 @@ export default function Navbar() {
             onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
           >
             网盘搜索
+          </Link>
+          <Link
+            href="/download"
+            className="transition-colors hidden sm:block font-medium"
+            style={{ color: "var(--text-secondary)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.color = "#22d3ee")}
+            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
+          >
+            视频下载
           </Link>
           {[
             { label: "动漫", val: "anime", color: "#f472b6" },
@@ -215,7 +225,7 @@ export default function Navbar() {
           {MOBILE_CATEGORIES.map(({ label, val }) => (
             <Link
               key={val}
-              href={val === "__pan" ? "/pan" : `/search?category=${val}`}
+              href={val === "__pan" ? "/pan" : val === "__download" ? "/download" : `/search?category=${val}`}
               onClick={() => setMobileOpen(false)}
               className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors"
               style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}

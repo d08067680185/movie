@@ -1,17 +1,14 @@
 """管理员鉴权：密码哈希存取 + 登录失败限流。"""
-import time
 import logging
 import bcrypt
-from collections import defaultdict
-from fastapi import HTTPException
+from ratelimit import SlidingWindowLimiter
 
 logger = logging.getLogger(__name__)
 
-# IP -> 失败时间戳列表（滑动窗口）
-_failed_attempts: dict[str, list[float]] = defaultdict(list)
 MAX_ATTEMPTS = 10
 WINDOW_SECONDS = 300  # 5 分钟内失败超过 MAX_ATTEMPTS 次则锁定
-LOCKOUT_SECONDS = 300  # 锁定 5 分钟
+
+_limiter = SlidingWindowLimiter(MAX_ATTEMPTS, WINDOW_SECONDS, message="登录尝试过多，请稍后再试")
 
 
 def hash_password(plain: str) -> str:
@@ -26,20 +23,15 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def check_rate_limit(client_ip: str):
-    """超过失败次数阈值则拒绝，并清理过期记录。"""
-    now = time.time()
-    attempts = _failed_attempts[client_ip]
-    attempts[:] = [t for t in attempts if now - t < WINDOW_SECONDS]
-    if len(attempts) >= MAX_ATTEMPTS:
-        raise HTTPException(status_code=429, detail="登录尝试过多，请稍后再试")
+    _limiter.check(client_ip)
 
 
 def record_failure(client_ip: str):
-    _failed_attempts[client_ip].append(time.time())
+    _limiter.record(client_ip)
 
 
 def record_success(client_ip: str):
-    _failed_attempts.pop(client_ip, None)
+    _limiter.reset(client_ip)
 
 
 def migrate_plaintext_password(settings) -> None:

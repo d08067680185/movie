@@ -20,6 +20,7 @@ export default function PanContent() {
 
   const [input, setInput] = useState(q);
   const [hotWords, setHotWords] = useState<{ keyword: string; count: number }[]>([]);
+  const [showSuggest, setShowSuggest] = useState(false);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -32,6 +33,7 @@ export default function PanContent() {
 
   function goSearch(keyword: string) {
     const kw = keyword.trim();
+    setShowSuggest(false);
     router.push(kw ? `/pan?q=${encodeURIComponent(kw)}` : "/pan");
   }
 
@@ -39,6 +41,10 @@ export default function PanContent() {
     e.preventDefault();
     goSearch(input);
   }
+
+  const suggestions = input.trim()
+    ? hotWords.filter((w) => w.keyword.includes(input.trim()) && w.keyword !== input.trim())
+    : hotWords;
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -56,7 +62,7 @@ export default function PanContent() {
             </p>
           )}
 
-          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto">
+          <form onSubmit={handleSubmit} className="max-w-2xl mx-auto relative">
             <div
               className="flex items-center gap-2 px-4 py-3 rounded-xl search-glow"
               style={{ background: "var(--bg-input)", border: "1px solid var(--border-input)" }}
@@ -66,6 +72,8 @@ export default function PanContent() {
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
+                onFocus={() => setShowSuggest(true)}
+                onBlur={() => setTimeout(() => setShowSuggest(false), 150)}
                 placeholder="搜索网盘资源：影视 / 电子书 / 软件 / 课程…"
                 className="flex-1 bg-transparent outline-none text-sm sm:text-base"
                 style={{ color: "var(--text-primary)" }}
@@ -89,6 +97,27 @@ export default function PanContent() {
                 搜索
               </button>
             </div>
+
+            {showSuggest && suggestions.length > 0 && (
+              <ul
+                className="absolute left-0 right-0 top-full mt-1.5 rounded-xl overflow-hidden z-10 shadow-lg"
+                style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+              >
+                {suggestions.slice(0, 8).map((w) => (
+                  <li key={w.keyword}>
+                    <button
+                      type="button"
+                      onMouseDown={(e) => { e.preventDefault(); goSearch(w.keyword); }}
+                      className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left transition-colors hover:bg-black/5"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      <Search size={13} style={{ opacity: 0.5, flexShrink: 0 }} />
+                      <span className="truncate">{w.keyword}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </form>
 
           {/* 热门搜索词 */}
@@ -109,7 +138,7 @@ export default function PanContent() {
           )}
         </div>
 
-        <LiveSearchResults q={q} />
+        <LiveSearchResults q={q} hotWords={hotWords} onPickHotWord={goSearch} />
       </div>
       <Footer />
     </div>

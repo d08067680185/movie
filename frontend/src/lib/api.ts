@@ -175,3 +175,36 @@ export async function getLatestResources(): Promise<ResourceCard[]> {
     return [];
   }
 }
+
+export interface DownloadStatus {
+  id: number;
+  status: "queued" | "downloading" | "complete" | "error" | "expired";
+  title: string | null;
+  downloaded_bytes: number | null;
+  total_bytes: number | null;
+  download_speed: number | null;
+  error_message: string | null;
+}
+
+export async function createDownload(url: string, title?: string): Promise<{ id: number }> {
+  const res = await fetch(`${API_BASE}/api/downloads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url, title }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `创建下载任务失败 (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function getDownloadStatus(id: number): Promise<DownloadStatus> {
+  const res = await fetch(`${API_BASE}/api/downloads/${id}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`查询下载状态失败 (${res.status})`);
+  return res.json();
+}
+
+export function downloadFileUrl(id: number): string {
+  return `${API_BASE}/api/downloads/${id}/file`;
+}

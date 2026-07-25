@@ -15,6 +15,7 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_db_path}"
 os.environ["ADMIN_PASSWORD"] = "test_admin_password"
 os.environ.pop("ADMIN_PASSWORD_HASH", None)
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
+os.environ["DOWNLOAD_DIR"] = tempfile.mkdtemp(prefix="movie_test_downloads_")
 
 from database import init_db, AsyncSessionLocal, engine  # noqa: E402
 
@@ -39,7 +40,7 @@ async def _clean_tables():
     yield
     async with AsyncSessionLocal() as session:
         from sqlalchemy import text
-        for table in ["resource_links", "resources", "sources", "spider_logs", "search_logs"]:
+        for table in ["resource_links", "resources", "sources", "spider_logs", "search_logs", "downloads"]:
             await session.execute(text(f"DELETE FROM {table}"))
         await session.execute(text("DELETE FROM resources_fts"))
         await session.commit()

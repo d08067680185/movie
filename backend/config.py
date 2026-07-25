@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     PANSOU_URL: str = "http://localhost:8888"
 
+    # 视频下载(yt-dlp)
+    DOWNLOAD_DIR: str = "./downloads"
+    DOWNLOAD_MAX_CONCURRENT_GLOBAL: int = 5
+    DOWNLOAD_MAX_CONCURRENT_PER_IP: int = 2
+    DOWNLOAD_MAX_SIZE_GB: float = 8.0
+    DOWNLOAD_RETENTION_HOURS: int = 12
+    DOWNLOAD_QUOTA_GB: float = 30.0
+
     class Config:
         env_file = ".env"
 

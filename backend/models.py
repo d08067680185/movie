@@ -113,3 +113,20 @@ class SearchLog(Base):
     keyword = Column(String(200), nullable=False, index=True, unique=True)
     count = Column(Integer, default=1)
     last_searched = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class Download(Base):
+    __tablename__ = "downloads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    source_url = Column(String(2000), nullable=False)
+    title = Column(String(500))
+    status = Column(String(20), nullable=False, default="queued", index=True)  # queued, downloading, complete, error, expired
+    total_bytes = Column(Integer)
+    downloaded_bytes = Column(Integer, default=0)
+    file_path = Column(String(1000))
+    error_message = Column(Text)
+    requester_ip = Column(String(64), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    completed_at = Column(DateTime(timezone=True))
+    expires_at = Column(DateTime(timezone=True), index=True)

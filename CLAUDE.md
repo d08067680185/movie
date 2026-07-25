@@ -129,11 +129,20 @@ CORS_ORIGINS=https://movie.mxzshs.com,https://localhost:3000
 SPIDER_INTERVAL_HOURS=6         # Auto-crawl every N hours
 TELEGRAM_BOT_TOKEN=<token>      # Optional; for error notifications
 TELEGRAM_CHAT_ID=<id>           # Required if bot token set
+PANSOU_URL=http://pansou:8888   # 全网搜(PanSou)代理地址，docker-compose 内网服务名
+DOWNLOAD_DIR=./downloads              # 视频下载(yt-dlp)落盘目录
+DOWNLOAD_MAX_CONCURRENT_GLOBAL=5      # 全站同时下载任务上限
+DOWNLOAD_MAX_CONCURRENT_PER_IP=2      # 单IP同时下载任务上限
+DOWNLOAD_MAX_SIZE_GB=8                # 单次下载画质选择器已限制<=1080p，此项为预留配额位
+DOWNLOAD_RETENTION_HOURS=12           # 完成文件保留时长，超时由 APScheduler 定时清理
+DOWNLOAD_QUOTA_GB=30                  # DOWNLOAD_DIR 总占用超过此值时拒绝新任务
 ```
 
 **Admin auth (2026-07-24 security hardening)**: `X-Admin-Token` is compared against a bcrypt hash (`ADMIN_PASSWORD_HASH`), never plaintext. On first startup, `auth.py:migrate_plaintext_password()` hashes whatever `ADMIN_PASSWORD` is set (env var or `.env`, default `admin123`), writes `ADMIN_PASSWORD_HASH` into `.env`, and deletes the plaintext line — the plaintext is not recoverable afterward. `POST /api/admin/change-password` also stores only the hash. Failed-token attempts are rate-limited per IP (`auth.py`: 10 failures / 5 min → 429 for 5 min).
 
 **Implication for one-off scripts** (`import_movies.py`, `enrich_*.py`, `reverify_review_groups.py`): they read the plaintext token from `ADMIN_PASSWORD` env var or `.env`. Since `.env` no longer holds plaintext after first boot, you must pass it explicitly when running them, e.g. `ADMIN_PASSWORD=<your actual password> venv/bin/python enrich_movies.py`.
+
+**Docker deploy note (2026-07-25 fix)**: `docker-compose.yml` used to inject `ADMIN_PASSWORD` as a container env var on every start — since pydantic-settings prioritizes real env vars over `.env` file values, this silently re-triggered the plaintext→hash migration on every container restart/recreate, discarding any password set via the admin panel's change-password UI (which only persists to `.env`, never mounted). Fixed by removing `ADMIN_PASSWORD` from `docker-compose.yml`'s `environment:` block and instead bind-mounting `./backend/.env:/app/.env` so `ADMIN_PASSWORD_HASH` genuinely persists across container recreates. **This means `backend/.env` must exist and contain a seed `ADMIN_PASSWORD=` (or already-migrated `ADMIN_PASSWORD_HASH=`) line on the deploy server before first bringing the container up** — an empty/missing file will make Docker error on the bind mount, and a fresh container with no seed falls back to config.py's default (`admin123`).
 
 ### NEXT_PUBLIC_API_URL Must Use `??` Not `||`
 
@@ -170,6 +179,10 @@ Docker internal:
 | `main.py` | FastAPI app, CORS, APScheduler jobs (crawl every N hrs, daily backup at 03:00) |
 | `api/search.py` | Public router: `/search`, `/stats` (60s cache), `/hot`, `/latest`, `/resource/{id}`, `/related/{id}`, `/hot-searches` |
 | `api/admin.py` | Protected `/api/admin/*` endpoints (X-Admin-Token header); resource/link CRUD, batch import, duplicates, check-links, backups, Telegram config, stats-detail, logs pagination |
+| `api/livesearch.py` | `/api/livesearch` — proxies to self-hosted PanSou for netdisk aggregate search ("全网搜"); in-memory TTL cache + circuit breaker on upstream failures |
+| `api/downloads.py` | `/api/downloads` — generic video link downloader (YouTube/腾讯视频/优酷 etc, via `ytdlp_client.py`); POST creates a background task, GET polls progress, GET `/{id}/file` streams the finished file. Rate-limited + concurrency-capped (see below) |
+| `ytdlp_client.py` | yt-dlp wrapper; runs the sync yt-dlp call via `asyncio.to_thread`; progress_hooks write into an in-memory dict (`get_progress()`) since the hook runs off the event loop and can't await DB writes |
+| `ratelimit.py` | `SlidingWindowLimiter` — generic per-key sliding-window rate limiter, shared by admin login (`auth.py`) and download creation (`api/downloads.py`) |
 | `spiders/__init__.py` | SPIDER_REGISTRY: maps spider_class name → class (register new spiders here) |
 | `spiders/scheduler.py` | `run_spider(source_id)` main scheduler; `run_all_spiders()` for APScheduler; task progress tracking; Telegram on failure |
 | `spiders/sources/` | Individual spider implementations: demo, rss_spider, tmdb_batch, pan_search, bangumi (not in registry; called separately) |
@@ -193,6 +206,13 @@ Docker internal:
 **Link validation**:
 - `POST /api/admin/check-links` does HEAD requests on `pan_*` links
 - Marks 404/403/410 as `is_valid=False` (soft-delete; hides from detail page)
+
+**Video link downloads (2026-07-25)**:
+- `Download` model (`models.py`) tracks task lifecycle: `queued → downloading → complete|error|expired`
+- Only generic http(s) links via yt-dlp are supported (YouTube etc — stable; 腾讯视频/优酷 etc — best-effort, frequently breaks on platform changes since they use encrypted streams). **Magnet/BT links are intentionally NOT supported** — considered and explicitly deferred, no aria2/torrent infra in this repo
+- Concurrency + quota enforced at creation time in `api/downloads.py:create_download` (`DOWNLOAD_MAX_CONCURRENT_GLOBAL`/`_PER_IP`, `DOWNLOAD_QUOTA_GB` checked against actual `DOWNLOAD_DIR` size)
+- Completed files auto-expire after `DOWNLOAD_RETENTION_HOURS` (default 12h); cleanup runs hourly via APScheduler (`main.py` job `cleanup_downloads` → `api.downloads.cleanup_expired_downloads`), which also force-errors any task stuck in queued/downloading for >6h
+- `ytdlp_client._run_download` explicitly checks the output file actually exists after `extract_info()` — some sites' generic extractor (e.g. 腾讯视频) can return an `info` dict without raising `yt_dlp.utils.DownloadError` and without producing a file; treat that as a failure too, not a silent "complete"
 
 ### Frontend Core Files
 

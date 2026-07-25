@@ -15,3 +15,4 @@ fake-useragent==1.5.1
 bcrypt==4.2.1
 pytest==9.1.1
 pytest-asyncio==1.4.0
+yt-dlp==2026.7.4
