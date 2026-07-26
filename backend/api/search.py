@@ -1,5 +1,5 @@
 import time
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, update, text
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -8,10 +8,25 @@ from typing import Optional
 from database import get_db
 from models import Resource, ResourceLink, Source, SearchLog
 from schemas import SearchResult, ResourceCardOut, ResourceDetailOut, ResourceLinkOut, StatsOut
+from ratelimit import SlidingWindowLimiter, get_client_ip
 
 router = APIRouter(prefix="/api", tags=["search"])
 
 from config import CATEGORY_MAP
+
+# 公开接口限流：只挂在开销最大(FTS5搜索无缓存)、最容易被刷的两个路由上，
+# 阈值给宽松些避免误伤正常用户翻页/连续搜索
+_public_read_limiter = SlidingWindowLimiter(
+    max_attempts=60, window_seconds=60, message="请求过于频繁，请稍后再试"
+)
+
+
+def rate_limit_public_read(request: Request):
+    """限流器统计的是"请求次数"而非失败次数，所以每次放行都要 record，跟
+    auth.py 那种"只记失败"的用法不同。"""
+    ip = get_client_ip(request)
+    _public_read_limiter.check(ip)
+    _public_read_limiter.record(ip)
 
 _ORDER_MAP = {
     "popular": [Resource.view_count.desc(), Resource.rating.desc().nulls_last()],
@@ -59,6 +74,7 @@ async def search(
     page: int = Query(1, ge=1, le=1000),
     page_size: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    _rl=Depends(rate_limit_public_read),
 ):
     stmt = select(Resource)
 
@@ -162,7 +178,7 @@ async def search(
 
 
 @router.get("/resource/{resource_id}", response_model=ResourceDetailOut)
-async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db)):
+async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db), _rl=Depends(rate_limit_public_read)):
     from fastapi import HTTPException
 
     stmt = (

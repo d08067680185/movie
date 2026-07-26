@@ -69,7 +69,13 @@ export default function AdminPage() {
   const [spiderClasses, setSpiderClasses] = useState<string[]>([]);
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [statsDetail, setStatsDetail] = useState<{ today_resources: number; today_links: number } | null>(null);
-  const [panHealth, setPanHealth] = useState<{ pansou: string; cache_entries: number; requests: number; cache_hits: number; upstream_errors: number } | null>(null);
+  const [panHealth, setPanHealth] = useState<{ pansou: string; cache_entries: number; requests: number; cache_hits: number; upstream_errors: number; circuit_open?: boolean } | null>(null);
+  const [downloadMon, setDownloadMon] = useState<{
+    downloads: { id: number; source_url: string; title: string | null; status: string; total_bytes: number | null; error_message: string | null; requester_ip: string | null; created_at: string; expires_at: string | null }[];
+    status_counts: Record<string, number>;
+    disk_used_gb: number;
+    disk_quota_gb: number;
+  } | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", spider_class: "demo", base_url: "", config: "{}" });
   const [msg, setMsg] = useState("");
@@ -201,6 +207,7 @@ export default function AdminPage() {
       setTmdbKeyConfigured(k.configured);
     }
     loadPanHealth();
+    loadDownloadMon(t);
   }
 
   async function loadPanHealth() {
@@ -208,6 +215,13 @@ export default function AdminPage() {
       const res = await fetch(`${API}/api/livesearch/health`);
       if (res.ok) setPanHealth(await res.json());
     } catch { setPanHealth(null); }
+  }
+
+  async function loadDownloadMon(t = token) {
+    try {
+      const res = await apiFetch("/api/admin/downloads", {}, t);
+      if (res.ok) setDownloadMon(await res.json());
+    } catch { setDownloadMon(null); }
   }
 
   async function toggleSource(id: number) {
@@ -825,6 +839,11 @@ export default function AdminPage() {
                   : { background: "rgba(248,113,113,0.15)", color: "#f87171" }}>
                   PanSou {panHealth.pansou === "up" ? "在线" : "离线"}
                 </span>
+                {panHealth.circuit_open && (
+                  <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
+                    熔断中
+                  </span>
+                )}
               </div>
               <button onClick={loadPanHealth} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#606070" }}>刷新</button>
             </div>
@@ -841,6 +860,66 @@ export default function AdminPage() {
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* ══ 视频下载(yt-dlp)监控 ══ */}
+        {downloadMon && (
+          <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: `1px solid ${downloadMon.disk_used_gb >= downloadMon.disk_quota_gb ? "rgba(248,113,113,0.5)" : "rgba(255,255,255,0.08)"}` }}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold">下载监控</h2>
+              <button onClick={() => loadDownloadMon()} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#606070" }}>刷新</button>
+            </div>
+
+            <div className="mb-3">
+              <div className="flex justify-between text-xs mb-1" style={{ color: "#a0a0b0" }}>
+                <span>磁盘占用</span>
+                <span>{downloadMon.disk_used_gb}GB / {downloadMon.disk_quota_gb}GB</span>
+              </div>
+              <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.min(100, (downloadMon.disk_used_gb / downloadMon.disk_quota_gb) * 100)}%`,
+                    background: downloadMon.disk_used_gb >= downloadMon.disk_quota_gb ? "#f87171" : "#e50914",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2 mb-3">
+              {Object.entries(downloadMon.status_counts).map(([status, count]) => (
+                <span key={status} className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}>
+                  {status}: {count}
+                </span>
+              ))}
+              {Object.keys(downloadMon.status_counts).length === 0 && (
+                <span className="text-xs" style={{ color: "#606070" }}>暂无下载任务</span>
+              )}
+            </div>
+
+            {downloadMon.downloads.length > 0 && (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {downloadMon.downloads.map((d) => (
+                  <div key={d.id} className="flex items-center gap-2 text-xs p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                    <span
+                      className="px-1.5 py-0.5 rounded shrink-0"
+                      style={{
+                        background: d.status === "complete" ? "rgba(74,222,128,0.15)" : d.status === "error" ? "rgba(248,113,113,0.15)" : "rgba(251,191,36,0.15)",
+                        color: d.status === "complete" ? "#4ade80" : d.status === "error" ? "#f87171" : "#fbbf24",
+                      }}
+                    >
+                      {d.status}
+                    </span>
+                    <span className="flex-1 truncate" style={{ color: "#a0a0b0" }} title={d.title || d.source_url}>
+                      {d.title || d.source_url}
+                    </span>
+                    {d.total_bytes && <span style={{ color: "#606070" }}>{(d.total_bytes / 1024 / 1024).toFixed(1)}MB</span>}
+                    <span style={{ color: "#606070" }}>{d.requester_ip}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from config import settings
 from database import get_db
 from models import SearchLog
+from utils import send_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,14 @@ def _circuit_record_failure():
     if _circuit_failures >= _CIRCUIT_FAIL_THRESHOLD:
         _circuit_open_until = time.time() + _CIRCUIT_COOLDOWN
         logger.warning("pansou 连续失败 %d 次，熔断 %.0f 秒", _circuit_failures, _CIRCUIT_COOLDOWN)
+        # 熔断打开时(而非每次失败)发一次告警；被熔断跳过的请求不会再次调用到这里，天然不会刷屏
+        try:
+            asyncio.create_task(send_telegram(
+                f"⚠️ <b>全网搜(PanSou)熔断触发</b>\n连续失败 {_circuit_failures} 次，{_CIRCUIT_COOLDOWN:.0f} 秒内将快速失败"
+            ))
+        except RuntimeError:
+            # 没有运行中的事件循环(理论上生产环境这里总在异步请求处理内被调用，不应发生)
+            logger.warning("熔断告警未发送：无运行中的事件循环")
 
 
 def _circuit_record_success():

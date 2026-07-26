@@ -5,6 +5,7 @@ DOWNLOAD_RETENTION_HOURS 小时后由 main.py 里的定时任务清理(见 clean
 import asyncio
 import logging
 import os
+import time
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlparse
@@ -18,7 +19,8 @@ import ytdlp_client
 from config import settings
 from database import AsyncSessionLocal, get_db
 from models import Download
-from ratelimit import SlidingWindowLimiter
+from ratelimit import SlidingWindowLimiter, get_client_ip
+from utils import send_telegram
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,10 @@ router = APIRouter(prefix="/api/downloads", tags=["downloads"])
 _create_limiter = SlidingWindowLimiter(
     max_attempts=5, window_seconds=60, message="下载请求过于频繁，请稍后再试"
 )
+
+# 磁盘配额告警节流：避免高峰期每次拒绝请求都发一条 Telegram 刷屏
+_QUOTA_ALERT_COOLDOWN = 600.0
+_last_quota_alert_ts = 0.0
 
 
 def _validate_url(url: str) -> str:
@@ -42,6 +48,20 @@ async def _active_count(db: AsyncSession, requester_ip: Optional[str] = None) ->
     if requester_ip is not None:
         stmt = stmt.where(Download.requester_ip == requester_ip)
     return (await db.execute(stmt)).scalar() or 0
+
+
+def _alert_quota_exceeded(used_gb: float):
+    global _last_quota_alert_ts
+    now = time.time()
+    if now - _last_quota_alert_ts < _QUOTA_ALERT_COOLDOWN:
+        return
+    _last_quota_alert_ts = now
+    try:
+        asyncio.create_task(send_telegram(
+            f"⚠️ <b>下载空间已满</b>\n已用 {used_gb:.1f}GB / 配额 {settings.DOWNLOAD_QUOTA_GB}GB，新下载请求正被拒绝"
+        ))
+    except RuntimeError:
+        logger.warning("下载空间告警未发送：无运行中的事件循环")
 
 
 def _dir_size_bytes(path: str) -> int:
@@ -100,7 +120,7 @@ async def create_download(payload: dict, request: Request, db: AsyncSession = De
     url = _validate_url(payload.get("url", ""))
     title = (payload.get("title") or "").strip()[:500] or None
 
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     _create_limiter.check(client_ip)
 
     global_active = await _active_count(db)
@@ -113,6 +133,7 @@ async def create_download(payload: dict, request: Request, db: AsyncSession = De
 
     used_gb = _dir_size_bytes(settings.DOWNLOAD_DIR) / (1024 ** 3)
     if used_gb >= settings.DOWNLOAD_QUOTA_GB:
+        _alert_quota_exceeded(used_gb)
         raise HTTPException(status_code=503, detail="服务器下载空间已满，请稍后再试")
 
     _create_limiter.record(client_ip)
@@ -189,6 +210,8 @@ async def cleanup_expired_downloads():
         if expired or stalled:
             await db.commit()
             logger.info("下载清理：过期 %d 个，超时终止 %d 个", len(expired), len(stalled))
+        if stalled:
+            await send_telegram(f"⚠️ <b>下载任务卡死清理</b>\n发现 {len(stalled)} 个超过6小时未完成的下载任务，已自动终止")
 
 
 @router.get("/{download_id}/file")

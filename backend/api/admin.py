@@ -4,13 +4,14 @@ from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
-from models import Source, SpiderLog, Resource, ResourceLink, SearchLog
+from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
 import tasks as task_registry
 from utils import backup_db, list_backups, send_telegram
 from auth import verify_password, hash_password, check_rate_limit, record_failure, record_success
+from ratelimit import get_client_ip
 import asyncio
 import re
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def verify_admin(request: Request, x_admin_token: Optional[str] = Header(None)):
-    client_ip = request.client.host if request.client else "unknown"
+    client_ip = get_client_ip(request)
     check_rate_limit(client_ip)
     if not settings.ADMIN_PASSWORD_HASH or not verify_password(x_admin_token or "", settings.ADMIN_PASSWORD_HASH):
         record_failure(client_ip)
@@ -662,7 +663,11 @@ async def create_backup(_=Depends(verify_admin)):
     """E: 创建数据库备份"""
     try:
         path = backup_db()
+        if path is None:
+            raise HTTPException(status_code=500, detail="备份完整性校验未通过，已自动删除坏文件")
         return {"message": f"备份成功：{path}", "path": path}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -796,3 +801,40 @@ async def get_stats_detail(db: AsyncSession = Depends(get_db), _=Depends(verify_
     ).scalar() or 0
 
     return {"today_resources": today_resources, "today_links": today_links}
+
+
+@router.get("/downloads")
+async def list_downloads(limit: int = 30, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    """视频下载(yt-dlp)任务监控：最近任务 + 磁盘占用/配额，此前只能 SSH 进服务器手动查"""
+    from api.downloads import _dir_size_bytes
+
+    result = await db.execute(
+        select(Download).order_by(Download.created_at.desc()).limit(limit)
+    )
+    downloads = [
+        {
+            "id": d.id,
+            "source_url": d.source_url,
+            "title": d.title,
+            "status": d.status,
+            "total_bytes": d.total_bytes,
+            "error_message": d.error_message,
+            "requester_ip": d.requester_ip,
+            "created_at": d.created_at,
+            "expires_at": d.expires_at,
+        }
+        for d in result.scalars().all()
+    ]
+
+    status_counts = {}
+    for row in (await db.execute(select(Download.status, func.count()).group_by(Download.status))).all():
+        status_counts[row[0]] = row[1]
+
+    used_gb = round(_dir_size_bytes(settings.DOWNLOAD_DIR) / (1024 ** 3), 2)
+
+    return {
+        "downloads": downloads,
+        "status_counts": status_counts,
+        "disk_used_gb": used_gb,
+        "disk_quota_gb": settings.DOWNLOAD_QUOTA_GB,
+    }

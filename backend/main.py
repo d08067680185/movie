@@ -13,7 +13,7 @@ from api.livesearch import router as livesearch_router
 from api.downloads import router as downloads_router, cleanup_expired_downloads
 from config import settings
 from spiders.scheduler import run_all_spiders
-from utils import backup_db
+from utils import backup_db, send_telegram
 from api.admin import run_link_check
 from auth import migrate_plaintext_password
 
@@ -26,6 +26,13 @@ scheduler = AsyncIOScheduler()
 async def seed_demo_data():
     # 演示数据已禁用，使用 TMDb 爬虫导入真实数据
     pass
+
+
+async def run_daily_backup():
+    dest = await asyncio.to_thread(backup_db)
+    if dest is None:
+        logger.error("每日备份完整性校验失败")
+        await send_telegram("⚠️ <b>数据库备份失败</b>\n今日自动备份的完整性校验未通过，已删除坏文件，请尽快检查")
 
 
 @asynccontextmanager
@@ -46,7 +53,7 @@ async def lifespan(app: FastAPI):
         next_run_time=datetime.now() + timedelta(minutes=10),
     )
     scheduler.add_job(
-        lambda: asyncio.create_task(asyncio.to_thread(backup_db)),
+        lambda: asyncio.create_task(run_daily_backup()),
         "cron",
         hour=3,
         minute=0,
