@@ -114,6 +114,7 @@ export default function ResourceCard({ resource }: Props) {
                 backdropFilter: "blur(4px)",
               }}
               title="复制链接"
+              aria-label="复制链接"
             >
               {shareCopied
                 ? <Check size={12} color="#fff" />
@@ -127,6 +128,7 @@ export default function ResourceCard({ resource }: Props) {
                 backdropFilter: "blur(4px)",
               }}
               title={faved ? "取消收藏" : "收藏"}
+              aria-label={faved ? "取消收藏" : "收藏"}
             >
               <Heart size={12} fill={faved ? "#fff" : "none"} color="#fff" />
             </button>

@@ -72,7 +72,7 @@ export default function FavoritesContent() {
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
       <Navbar />
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             <Heart size={20} fill="#e50914" style={{ color: "#e50914" }} />
@@ -225,7 +225,7 @@ export default function FavoritesContent() {
             </p>
           </>
         )}
-      </div>
+      </main>
 
       {modalItem && (
         <PanLinkModal

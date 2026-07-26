@@ -50,7 +50,7 @@ export default function PanContent() {
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
       <Navbar />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8">
         {/* Hero 搜索区 */}
         <div className={`text-center ${q ? "mb-6" : "mb-10 mt-8 sm:mt-16"}`}>
           <h1 className={`font-bold gradient-text ${q ? "text-xl mb-4" : "text-2xl sm:text-4xl mb-3"}`}>
@@ -139,7 +139,7 @@ export default function PanContent() {
         </div>
 
         <LiveSearchResults q={q} hotWords={hotWords} onPickHotWord={goSearch} />
-      </div>
+      </main>
       <Footer />
     </div>
   );

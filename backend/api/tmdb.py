@@ -31,9 +31,8 @@ async def tmdb_get(path: str, params: dict = None):
         return resp.json()
 
 
-@router.get("/search")
-async def tmdb_search(q: str, _=Depends(verify_admin)):
-    data = await tmdb_get("/search/multi", {"query": q})
+async def search_tmdb_multi(query: str) -> list[dict]:
+    data = await tmdb_get("/search/multi", {"query": query})
     results = []
     for item in data.get("results", [])[:10]:
         media_type = item.get("media_type", "movie")
@@ -52,18 +51,14 @@ async def tmdb_search(q: str, _=Depends(verify_admin)):
     return results
 
 
-@router.post("/enrich/{resource_id}")
-async def enrich_resource(
-    resource_id: int,
-    tmdb_id: int,
-    media_type: str = "movie",
-    db: AsyncSession = Depends(get_db),
-    _=Depends(verify_admin),
-):
-    resource = await db.get(Resource, resource_id)
-    if not resource:
-        raise HTTPException(status_code=404)
+@router.get("/search")
+async def tmdb_search(q: str, _=Depends(verify_admin)):
+    return await search_tmdb_multi(q)
 
+
+async def apply_tmdb_data(resource: Resource, tmdb_id: int, media_type: str = "movie"):
+    """用 TMDb 数据填充 resource 字段(不 commit，调用方负责)。
+    单资源补全(enrich_resource)和批量补全(admin.py:bulk_enrich_tmdb)共用。"""
     if media_type == "movie":
         data = await tmdb_get(f"/movie/{tmdb_id}", {"append_to_response": "credits"})
         resource.title_en = data.get("title", "")
@@ -105,5 +100,20 @@ async def enrich_resource(
         resource.actors = [p["name"] for p in credits.get("cast", [])[:8]]
 
     resource.tmdb_id = tmdb_id
+
+
+@router.post("/enrich/{resource_id}")
+async def enrich_resource(
+    resource_id: int,
+    tmdb_id: int,
+    media_type: str = "movie",
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    resource = await db.get(Resource, resource_id)
+    if not resource:
+        raise HTTPException(status_code=404)
+
+    await apply_tmdb_data(resource, tmdb_id, media_type)
     await db.commit()
     return {"message": "补全成功", "title": resource.title}

@@ -6,7 +6,7 @@ import pytest
 from fastapi import Request
 from httpx import ASGITransport
 
-from ratelimit import SlidingWindowLimiter, get_client_ip
+from ratelimit import SlidingWindowLimiter, get_client_ip, sweep_all_limiters
 
 
 def _unique_ip() -> str:
@@ -47,6 +47,33 @@ def test_sliding_window_limiter_blocks_after_threshold():
         limiter.record(key)
     with pytest.raises(Exception):
         limiter.check(key)
+
+
+def test_sweep_removes_keys_with_no_remaining_attempts():
+    limiter = SlidingWindowLimiter(max_attempts=5, window_seconds=0.05)
+    key = f"sweep-test-{uuid.uuid4()}"
+    limiter.record(key)
+    assert key in limiter._attempts
+    time.sleep(0.1)
+    limiter.sweep()
+    assert key not in limiter._attempts
+
+
+def test_sweep_keeps_keys_with_active_attempts():
+    limiter = SlidingWindowLimiter(max_attempts=5, window_seconds=60)
+    key = f"sweep-active-{uuid.uuid4()}"
+    limiter.record(key)
+    limiter.sweep()
+    assert key in limiter._attempts
+
+
+def test_new_limiter_instances_register_for_sweep_all():
+    key = f"registry-test-{uuid.uuid4()}"
+    limiter = SlidingWindowLimiter(max_attempts=5, window_seconds=0.05)
+    limiter.record(key)
+    time.sleep(0.1)
+    sweep_all_limiters()
+    assert key not in limiter._attempts
 
 
 @pytest.mark.asyncio

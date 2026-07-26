@@ -176,7 +176,7 @@ export default function DetailContent({ id }: Props) {
         </div>
       )}
 
-      <div className="max-w-5xl mx-auto px-4 py-6 sm:py-8">
+      <main className="max-w-5xl mx-auto px-4 py-6 sm:py-8">
         {/* 返回 + 分享 */}
         <div className="flex items-center justify-between mb-4 sm:mb-6">
           <button
@@ -522,7 +522,7 @@ export default function DetailContent({ id }: Props) {
             </div>
           </div>
         )}
-      </div>
+      </main>
       <Footer />
     </div>
   );

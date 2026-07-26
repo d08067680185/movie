@@ -14,8 +14,9 @@ from api.downloads import router as downloads_router, cleanup_expired_downloads
 from config import settings
 from spiders.scheduler import run_all_spiders
 from utils import backup_db, send_telegram
-from api.admin import run_link_check
+from api.admin import run_link_check, record_disk_usage_snapshot
 from auth import migrate_plaintext_password
+from ratelimit import sweep_all_limiters
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,6 +73,20 @@ async def lifespan(app: FastAPI):
         hours=1,
         id="cleanup_downloads",
         next_run_time=datetime.now() + timedelta(minutes=15),
+    )
+    scheduler.add_job(
+        sweep_all_limiters,
+        "interval",
+        hours=1,
+        id="sweep_ratelimiters",
+        next_run_time=datetime.now() + timedelta(minutes=20),
+    )
+    scheduler.add_job(
+        lambda: asyncio.create_task(record_disk_usage_snapshot()),
+        "cron",
+        hour=3,
+        minute=30,
+        id="disk_usage_snapshot",
     )
     scheduler.start()
     logger.info("Scheduler started")

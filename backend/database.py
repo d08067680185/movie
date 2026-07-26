@@ -16,7 +16,7 @@ async def get_db():
 
 
 async def init_db():
-    from models import Resource, Source, Tag, ResourceTag, SpiderLog, SearchLog  # noqa
+    from models import Resource, Source, Tag, ResourceTag, SpiderLog, SearchLog, Download, DiskUsageSnapshot  # noqa
     from sqlalchemy import text
     async with engine.begin() as conn:
         # WAL 模式：读写可并发进行，大幅降低多写入者场景下的锁冲突/损坏概率
@@ -44,6 +44,12 @@ async def init_db():
                 "CAST(substr(episode_info, 3) AS INTEGER) "
                 "WHERE episode_info GLOB '资源[0-9]*' AND episode_number IS NULL"
             ))
+
+        # 旧库补字段：resources.poster_checked_at（海报链接有效性检测追踪用）
+        res_cols = (await conn.execute(text("PRAGMA table_info(resources)"))).all()
+        res_col_names = {c[1] for c in res_cols}
+        if "poster_checked_at" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN poster_checked_at DATETIME"))
 
         for sql in [
             "CREATE INDEX IF NOT EXISTS idx_rl_last_checked ON resource_links (last_checked_at)",

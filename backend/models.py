@@ -33,6 +33,7 @@ class Resource(Base):
     synopsis = Column(Text)
     poster_url = Column(String(1000))
     backdrop_url = Column(String(1000))
+    poster_checked_at = Column(DateTime(timezone=True))
     tmdb_id = Column(Integer, unique=True, index=True)
     douban_id = Column(String(50))
     imdb_id = Column(String(50))
@@ -130,3 +131,13 @@ class Download(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     completed_at = Column(DateTime(timezone=True))
     expires_at = Column(DateTime(timezone=True), index=True)
+
+
+class DiskUsageSnapshot(Base):
+    """每日一次的磁盘占用快照，供管理后台画简单的历史趋势图(容量规划用)。"""
+    __tablename__ = "disk_usage_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    recorded_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    download_dir_gb = Column(Float)
+    backups_dir_gb = Column(Float)

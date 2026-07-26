@@ -81,7 +81,6 @@ export default function SearchContent() {
       setHistory(readHistory());
     }
     if ((searchParams.get("mode") || "local") === "live") return; // 全网搜由 LiveSearchResults 自行请求
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     const year = searchParams.get("year");
@@ -191,7 +190,7 @@ export default function SearchContent() {
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
       <Navbar />
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
+      <main className="max-w-7xl mx-auto px-4 py-8">
         {/* 标题 + 结果数 */}
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -628,7 +627,7 @@ export default function SearchContent() {
         )}
         </>
         )}
-      </div>
+      </main>
       <Footer />
     </div>
   );

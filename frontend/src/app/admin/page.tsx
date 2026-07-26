@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus, Bell, HardDrive, GitMerge, AlertTriangle, CheckCircle } from "lucide-react";
+import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus, Bell, HardDrive, GitMerge, AlertTriangle, CheckCircle, Trash2 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -58,6 +58,9 @@ interface DupGroup {
   title: string; year?: number; count: number; resources: DupResource[];
 }
 interface BackupItem { name: string; size_mb: number; created_at: string; }
+interface TmdbSearchResult {
+  id: number; title?: string; name?: string; release_date?: string; first_air_date?: string;
+}
 
 export default function AdminPage() {
   const [token, setToken] = useState("");
@@ -76,6 +79,7 @@ export default function AdminPage() {
     disk_used_gb: number;
     disk_quota_gb: number;
   } | null>(null);
+  const [diskHistory, setDiskHistory] = useState<{ recorded_at: string; download_dir_gb: number; backups_dir_gb: number }[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", spider_class: "demo", base_url: "", config: "{}" });
   const [msg, setMsg] = useState("");
@@ -88,6 +92,7 @@ export default function AdminPage() {
   const [resCategory, setResCategory] = useState("");
   const [resPage, setResPage] = useState(1);
   const [resData, setResData] = useState<{ total: number; items: ResourceDetail[] } | null>(null);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<number[]>([]);
   const [resNoPoster, setResNoPoster] = useState(false);
   const [resNoLinks, setResNoLinks] = useState(false);
   const [searchLogs, setSearchLogs] = useState<{ keyword: string; count: number; last_searched: string | null }[]>([]);
@@ -123,8 +128,11 @@ export default function AdminPage() {
   // B: 重复检测
   const [dupData, setDupData] = useState<DupGroup[] | null>(null);
   const [dupLoading, setDupLoading] = useState(false);
+  const [dupFuzzy, setDupFuzzy] = useState(false);
   // C: 链接检测
   const [linkCheckRunning, setLinkCheckRunning] = useState(false);
+  const [posterCheckRunning, setPosterCheckRunning] = useState(false);
+  const [bulkEnrichRunning, setBulkEnrichRunning] = useState(false);
   // E: 备份
   const [backups, setBackups] = useState<BackupItem[]>([]);
   const [backupRunning, setBackupRunning] = useState(false);
@@ -144,7 +152,7 @@ export default function AdminPage() {
   // TMDb 补全
   const [tmdbEnrichId, setTmdbEnrichId] = useState<number | null>(null);
   const [tmdbEnrichForm, setTmdbEnrichForm] = useState({ tmdb_id: "", media_type: "movie", search_query: "" });
-  const [tmdbSearchResults, setTmdbSearchResults] = useState<any[]>([]);
+  const [tmdbSearchResults, setTmdbSearchResults] = useState<TmdbSearchResult[]>([]);
   const [tmdbEnrichRunning, setTmdbEnrichRunning] = useState(false);
   const [tmdbSearchRunning, setTmdbSearchRunning] = useState(false);
 
@@ -222,6 +230,19 @@ export default function AdminPage() {
       const res = await apiFetch("/api/admin/downloads", {}, t);
       if (res.ok) setDownloadMon(await res.json());
     } catch { setDownloadMon(null); }
+    try {
+      const res = await apiFetch("/api/admin/disk-usage-history?days=30", {}, t);
+      if (res.ok) setDiskHistory(await res.json());
+    } catch { setDiskHistory([]); }
+  }
+
+  async function deleteDownload(id: number) {
+    if (!confirm(`删除下载任务 #${id}？\n如果任务还在下载中，无法真正终止底层进程，但会从列表和数据库中移除、释放已占用的部分文件空间。`)) return;
+    const resp = await apiFetch(`/api/admin/downloads/${id}`, { method: "DELETE" }, token);
+    if (resp.ok) {
+      setMsg("已删除下载任务");
+      loadDownloadMon();
+    }
   }
 
   async function toggleSource(id: number) {
@@ -336,7 +357,7 @@ export default function AdminPage() {
       return;
     }
     setEditLinkRunning(true);
-    const body: Record<string, any> = {};
+    const body: Record<string, string> = {};
     if (editLinkForm.url) body.url = editLinkForm.url;
     if (editLinkForm.link_type) body.link_type = editLinkForm.link_type;
     if (editLinkForm.quality) body.quality = editLinkForm.quality;
@@ -397,6 +418,24 @@ export default function AdminPage() {
       loadResources();
     } else {
       setMsg("删除失败");
+    }
+  }
+
+  function toggleResourceSelected(id: number) {
+    setSelectedResourceIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  async function bulkDeleteSelectedResources() {
+    if (selectedResourceIds.length === 0) return;
+    if (!confirm(`确认批量删除选中的 ${selectedResourceIds.length} 条资源及其所有链接？此操作不可恢复。`)) return;
+    const resp = await apiFetch("/api/admin/resources/bulk-delete", { method: "POST", body: JSON.stringify({ ids: selectedResourceIds }) }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      setSelectedResourceIds([]);
+      loadResources();
+    } else {
+      setMsg("批量删除失败");
     }
   }
 
@@ -640,14 +679,49 @@ export default function AdminPage() {
 
   async function loadDuplicates() {
     setDupLoading(true);
-    const resp = await apiFetch("/api/admin/duplicates?limit=30", {}, token);
+    const resp = await apiFetch(`/api/admin/duplicates?limit=30&fuzzy=${dupFuzzy}`, {}, token);
     if (resp.ok) setDupData(await resp.json());
     setDupLoading(false);
+  }
+
+  async function triggerPosterCheck() {
+    setPosterCheckRunning(true);
+    const resp = await apiFetch("/api/admin/check-posters?max_per_run=30", { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      setTimeout(loadTasks, 1000);
+    }
+    setPosterCheckRunning(false);
+  }
+
+  async function triggerBulkEnrich() {
+    setBulkEnrichRunning(true);
+    const resp = await apiFetch("/api/admin/bulk-enrich-tmdb?max_per_run=30", { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      setTimeout(loadTasks, 1000);
+    }
+    setBulkEnrichRunning(false);
   }
 
   async function mergeDuplicate(keepId: number, dupId: number, title: string) {
     if (!confirm(`合并「${title}」的重复项？\n将把 ID:${dupId} 的链接移到 ID:${keepId}，然后删除 ID:${dupId}。`)) return;
     const resp = await apiFetch(`/api/admin/resources/${keepId}/merge/${dupId}`, { method: "POST" }, token);
+    if (resp.ok) {
+      const d = await resp.json();
+      setMsg(d.message);
+      loadDuplicates();
+    }
+  }
+
+  async function mergeGroup(keepId: number, dupIds: number[], title: string) {
+    if (!confirm(`一键合并「${title}」整组？\n将保留 ID:${keepId}，把其余 ${dupIds.length} 条的链接合并进来后删除。`)) return;
+    const resp = await apiFetch("/api/admin/duplicates/merge-group", {
+      method: "POST",
+      body: JSON.stringify({ keep_id: keepId, dup_ids: dupIds }),
+    }, token);
     if (resp.ok) {
       const d = await resp.json();
       setMsg(d.message);
@@ -916,8 +990,39 @@ export default function AdminPage() {
                     </span>
                     {d.total_bytes && <span style={{ color: "#606070" }}>{(d.total_bytes / 1024 / 1024).toFixed(1)}MB</span>}
                     <span style={{ color: "#606070" }}>{d.requester_ip}</span>
+                    <button onClick={() => deleteDownload(d.id)} title="删除任务"
+                      className="shrink-0 p-1 rounded"
+                      style={{ color: "#f87171", background: "rgba(248,113,113,0.1)" }}>
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {diskHistory.length >= 2 && (
+              <div className="mt-4 pt-4" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                <p className="text-xs mb-2" style={{ color: "#606070" }}>磁盘占用趋势（近{diskHistory.length}天，下载目录）</p>
+                {(() => {
+                  const values = diskHistory.map(d => d.download_dir_gb);
+                  const max = Math.max(...values, 0.1);
+                  const w = 100, h = 32;
+                  const points = values.map((v, i) => {
+                    const x = (i / (values.length - 1)) * w;
+                    const y = h - (v / max) * h;
+                    return `${x},${y}`;
+                  }).join(" ");
+                  return (
+                    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ height: 48 }} preserveAspectRatio="none">
+                      <polyline points={points} fill="none" stroke="#e50914" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                    </svg>
+                  );
+                })()}
+                <div className="flex justify-between text-xs mt-1" style={{ color: "#404050" }}>
+                  <span>{new Date(diskHistory[0].recorded_at).toLocaleDateString()}</span>
+                  <span>{diskHistory[diskHistory.length - 1].download_dir_gb}GB</span>
+                  <span>{new Date(diskHistory[diskHistory.length - 1].recorded_at).toLocaleDateString()}</span>
+                </div>
               </div>
             )}
           </div>
@@ -999,6 +1104,30 @@ export default function AdminPage() {
               <p className="text-xs mt-2" style={{ color: "#404050" }}>检测进度可在「后台任务」面板中查看</p>
             </div>
 
+            {/* 海报链接检测 */}
+            <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-sm font-medium mb-1">海报链接检测</p>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>优先检测最久未检测的 30 条海报图链接，失效的自动清空 poster_url（清空后可用下方「批量TMDb补全」重新拉取）</p>
+              <button onClick={triggerPosterCheck} disabled={posterCheckRunning}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #0891b2 0%, #0e7490 100%)" }}>
+                <AlertTriangle size={14} /> {posterCheckRunning ? "检测中..." : "开始检测"}
+              </button>
+              <p className="text-xs mt-2" style={{ color: "#404050" }}>检测进度可在「后台任务」面板中查看</p>
+            </div>
+
+            {/* 批量TMDb补全 */}
+            <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
+              <p className="text-sm font-medium mb-1">批量TMDb补全</p>
+              <p className="text-xs mb-3" style={{ color: "#606070" }}>为缺海报/简介/年份的电影电视剧(最多30条)自动搜索TMDb并补全，动漫请用下方「Bangumi补全」</p>
+              <button onClick={triggerBulkEnrich} disabled={bulkEnrichRunning}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+                style={{ background: "linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)" }}>
+                <RefreshCw size={14} className={bulkEnrichRunning ? "animate-spin" : ""} /> {bulkEnrichRunning ? "补全中..." : "开始补全"}
+              </button>
+              <p className="text-xs mt-2" style={{ color: "#404050" }}>补全进度可在「后台任务」面板中查看</p>
+            </div>
+
             {/* Telegram 通知 */}
             <div className="p-4 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)" }}>
               <div className="flex items-center gap-2 mb-1">
@@ -1048,15 +1177,21 @@ export default function AdminPage() {
               <GitMerge size={18} style={{ color: "#fb923c" }} />
               <h2 className="text-lg font-bold">重复数据检测</h2>
               <span className="text-xs px-2 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>
-                按标题+年份去重
+                {dupFuzzy ? "模糊匹配(标点/空格容错)" : "按标题+年份精确去重"}
               </span>
             </div>
-            <button onClick={loadDuplicates} disabled={dupLoading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm"
-              style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.25)" }}>
-              <RefreshCw size={13} className={dupLoading ? "animate-spin" : ""} />
-              {dupData === null ? "扫描重复项" : "重新扫描"}
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 text-xs cursor-pointer" style={{ color: "#a0a0b0" }}>
+                <input type="checkbox" checked={dupFuzzy} onChange={(e) => setDupFuzzy(e.target.checked)} />
+                模糊匹配
+              </label>
+              <button onClick={loadDuplicates} disabled={dupLoading}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm"
+                style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c", border: "1px solid rgba(251,146,60,0.25)" }}>
+                <RefreshCw size={13} className={dupLoading ? "animate-spin" : ""} />
+                {dupData === null ? "扫描重复项" : "重新扫描"}
+              </button>
+            </div>
           </div>
 
           {dupData === null && !dupLoading && (
@@ -1073,9 +1208,17 @@ export default function AdminPage() {
               <p className="text-xs" style={{ color: "#fb923c" }}>发现 {dupData.length} 组重复资源，点击「保留」将保留该条并合并链接，另一条将被删除</p>
               {dupData.map((group, gi) => (
                 <div key={gi} className="p-3 rounded-lg" style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(251,146,60,0.15)" }}>
-                  <div className="text-sm font-medium mb-2">
-                    {group.title} {group.year && <span style={{ color: "#606070" }}>({group.year})</span>}
-                    <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>{group.count} 条</span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-sm font-medium">
+                      {group.title} {group.year && <span style={{ color: "#606070" }}>({group.year})</span>}
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(251,146,60,0.12)", color: "#fb923c" }}>{group.count} 条</span>
+                    </div>
+                    <button
+                      onClick={() => mergeGroup(group.resources[0].id, group.resources.slice(1).map(r => r.id), group.title)}
+                      className="px-2 py-1 rounded text-xs font-medium"
+                      style={{ background: "rgba(124,58,237,0.12)", color: "#a78bfa", border: "1px solid rgba(124,58,237,0.25)" }}>
+                      一键合并整组(保留ID:{group.resources[0].id})
+                    </button>
                   </div>
                   <div className="space-y-1.5">
                     {group.resources.map((r, ri) => (
@@ -1670,8 +1813,15 @@ export default function AdminPage() {
 
           {resData && (
             <div className="space-y-2">
-              <div className="text-xs mb-2" style={{ color: "#606070" }}>
-                共 {resData.total} 条，第 {resPage} / {Math.ceil(resData.total / 15) || 1} 页
+              <div className="flex items-center justify-between text-xs mb-2" style={{ color: "#606070" }}>
+                <span>共 {resData.total} 条，第 {resPage} / {Math.ceil(resData.total / 15) || 1} 页</span>
+                {selectedResourceIds.length > 0 && (
+                  <button onClick={bulkDeleteSelectedResources}
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium"
+                    style={{ background: "rgba(248,113,113,0.15)", color: "#f87171", border: "1px solid rgba(248,113,113,0.3)" }}>
+                    <Trash2 size={12} /> 批量删除选中的 {selectedResourceIds.length} 条
+                  </button>
+                )}
               </div>
               {resData.items.map(res => (
                 <div key={res.id} className="rounded-lg overflow-hidden"
@@ -1679,6 +1829,14 @@ export default function AdminPage() {
                   {/* 影片行 */}
                   <div className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                     onClick={() => setExpandedId(expandedId === res.id ? null : res.id)}>
+                    <input
+                      type="checkbox"
+                      checked={selectedResourceIds.includes(res.id)}
+                      onClick={e => e.stopPropagation()}
+                      onChange={() => toggleResourceSelected(res.id)}
+                      className="shrink-0"
+                      aria-label={`选中「${res.title}」`}
+                    />
                     {res.poster_url
                       // eslint-disable-next-line @next/next/no-img-element
                       ? <img src={res.poster_url} alt={res.title} className="w-8 h-11 object-cover rounded flex-shrink-0" />
@@ -1904,7 +2062,7 @@ export default function AdminPage() {
                   </div>
                   {tmdbSearchResults.length > 0 && (
                     <div className="max-h-48 overflow-y-auto space-y-1 mb-3 p-2 rounded" style={{ background: "rgba(30,30,40,1)", border: "1px solid rgba(255,255,255,0.1)" }}>
-                      {tmdbSearchResults.map((result: any) => (
+                      {tmdbSearchResults.map((result) => (
                         <button key={result.id} type="button" onClick={() => setTmdbEnrichForm(f => ({ ...f, tmdb_id: String(result.id) }))}
                           className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-purple-700/20"
                           style={{ color: "#a0a0b0" }}>

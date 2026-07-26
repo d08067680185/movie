@@ -30,6 +30,11 @@ _create_limiter = SlidingWindowLimiter(
     max_attempts=5, window_seconds=60, message="下载请求过于频繁，请稍后再试"
 )
 
+# 单个下载任务的总时长硬上限；超时后调用方会尽快把状态标为 error 不再干等，
+# 但注意这不保证底层线程真的停止(Python线程无法强制杀死)，只是让"整站被一个
+# 卡死任务拖住等待"这件事有上限——真正防卡死靠 ytdlp_client.py 的独立线程池+socket_timeout
+_DOWNLOAD_WALL_CLOCK_TIMEOUT = 1800.0
+
 # 磁盘配额告警节流：避免高峰期每次拒绝请求都发一条 Telegram 刷屏
 _QUOTA_ALERT_COOLDOWN = 600.0
 _last_quota_alert_ts = 0.0
@@ -48,6 +53,13 @@ async def _active_count(db: AsyncSession, requester_ip: Optional[str] = None) ->
     if requester_ip is not None:
         stmt = stmt.where(Download.requester_ip == requester_ip)
     return (await db.execute(stmt)).scalar() or 0
+
+
+async def _find_in_flight_task(db: AsyncSession, url: str) -> Optional[Download]:
+    """同一链接已有人在下(queued/downloading)时直接复用那条任务，避免重复起
+    yt-dlp 进程浪费带宽/磁盘配额。"""
+    stmt = select(Download).where(Download.source_url == url, Download.status.in_(["queued", "downloading"]))
+    return (await db.execute(stmt)).scalars().first()
 
 
 def _alert_quota_exceeded(used_gb: float):
@@ -83,13 +95,25 @@ async def _run_download_task(download_id: int, url: str):
         await db.commit()
 
     try:
-        result = await ytdlp_client.download(url, settings.DOWNLOAD_DIR, download_id)
+        result = await asyncio.wait_for(
+            ytdlp_client.download(url, settings.DOWNLOAD_DIR, download_id),
+            timeout=_DOWNLOAD_WALL_CLOCK_TIMEOUT,
+        )
     except ytdlp_client.DownloadError as e:
         async with AsyncSessionLocal() as db:
             row = await db.get(Download, download_id)
             if row:
                 row.status = "error"
                 row.error_message = f"该链接暂不支持下载，或该网站/平台不受支持：{e.message[:300]}"
+                await db.commit()
+        return
+    except asyncio.TimeoutError:
+        logger.warning("下载任务超过 %.0f 秒未完成，标记失败 download_id=%s", _DOWNLOAD_WALL_CLOCK_TIMEOUT, download_id)
+        async with AsyncSessionLocal() as db:
+            row = await db.get(Download, download_id)
+            if row:
+                row.status = "error"
+                row.error_message = "下载耗时过长（超过30分钟），已自动终止"
                 await db.commit()
         return
     except Exception as e:
@@ -122,6 +146,10 @@ async def create_download(payload: dict, request: Request, db: AsyncSession = De
 
     client_ip = get_client_ip(request)
     _create_limiter.check(client_ip)
+
+    existing = await _find_in_flight_task(db, url)
+    if existing:
+        return {"id": existing.id}
 
     global_active = await _active_count(db)
     if global_active >= settings.DOWNLOAD_MAX_CONCURRENT_GLOBAL:

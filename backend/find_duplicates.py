@@ -1,22 +1,9 @@
-import re
 import sqlite3
 from collections import defaultdict
 
+from dedup import clean_key
+
 DB_PATH = "movie_search.db"
-
-QUALITY_WORDS = r"4K|1080P|1080p|720p|720P|高清|完整版|无删减|国语|粤语|中字|中英双字|修复版|数字修复|蓝光|HD|BD|杜比|导演剪辑版|加长版|未删减版"
-
-
-def clean_key(title):
-    t = title
-    t = re.sub(r"[（(【\[][^)）\]】]*[)）\]】]", "", t)
-    t = re.sub(QUALITY_WORDS, "", t, flags=re.IGNORECASE)
-    t = re.sub(r"第[0-9一二三四五六七八九十]+[季部]", "", t)
-    t = re.sub(r"(全)?(系列合集|系列|合集|全集|三部曲|四部曲|双部曲)$", "", t)
-    t = re.sub(r"[0-9]+[-~][0-9]+\s*[部季]?$", "", t)
-    t = re.sub(r"[0-9]+\s*[部季全]$", "", t)
-    t = re.sub(r"[\s.\-_·,，、]+", "", t)
-    return t.strip()
 
 
 conn = sqlite3.connect(DB_PATH)

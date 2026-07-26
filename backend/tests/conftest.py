@@ -40,7 +40,7 @@ async def _clean_tables():
     yield
     async with AsyncSessionLocal() as session:
         from sqlalchemy import text
-        for table in ["resource_links", "resources", "sources", "spider_logs", "search_logs", "downloads"]:
+        for table in ["resource_links", "resources", "sources", "spider_logs", "search_logs", "downloads", "disk_usage_snapshots"]:
             await session.execute(text(f"DELETE FROM {table}"))
         await session.execute(text("DELETE FROM resources_fts"))
         await session.commit()

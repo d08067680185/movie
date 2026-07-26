@@ -21,13 +21,10 @@ export default function HomeContent() {
   const [latestResources, setLatestResources] = useState<ResourceCard[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error] = useState<string | null>(null);
   const [hotKeywords, setHotKeywords] = useState<string[]>([]);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-
     // 并发但独立的三个请求，单个失败不影响整体
     Promise.all([
       getHotResources().catch(() => []),
@@ -62,6 +59,7 @@ export default function HomeContent() {
       }>
         <Navbar />
       </Suspense>
+      <main>
       {/* Hero */}
       <div
         className="relative overflow-hidden"
@@ -306,6 +304,7 @@ export default function HomeContent() {
           </div>
         )}
       </div>
+      </main>
       <Footer />
     </div>
   );

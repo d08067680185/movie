@@ -22,7 +22,7 @@ export default function DownloadContent() {
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
       <Navbar />
 
-      <div className="max-w-2xl mx-auto px-4 py-8 sm:py-16">
+      <main className="max-w-2xl mx-auto px-4 py-8 sm:py-16">
         <div className="text-center mb-8">
           <h1 className="font-bold gradient-text text-2xl sm:text-4xl mb-3">视频下载</h1>
           <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
@@ -63,7 +63,7 @@ export default function DownloadContent() {
             <DownloadTaskButton key={key} url={activeUrl} />
           </div>
         )}
-      </div>
+      </main>
 
       <Footer />
     </div>

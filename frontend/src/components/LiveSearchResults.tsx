@@ -109,6 +109,7 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     return doSearch(false);
   }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
 

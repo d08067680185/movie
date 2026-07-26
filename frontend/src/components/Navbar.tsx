@@ -193,6 +193,7 @@ export default function Navbar() {
             className="relative shrink-0 transition-colors"
             style={{ color: favCount > 0 ? "#e50914" : "var(--text-secondary)" }}
             title={`收藏夹 (${favCount})`}
+            aria-label={`收藏夹 (${favCount})`}
           >
             <Heart size={16} fill={favCount > 0 ? "#e50914" : "none"} />
             {favCount > 0 && (

@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
-from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download
+from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download, DiskUsageSnapshot
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
@@ -12,8 +12,12 @@ import tasks as task_registry
 from utils import backup_db, list_backups, send_telegram
 from auth import verify_password, hash_password, check_rate_limit, record_failure, record_success
 from ratelimit import get_client_ip
+from dedup import group_fuzzy_duplicates
 import asyncio
+import logging
 import re
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -142,6 +146,18 @@ async def delete_resource(resource_id: int, db: AsyncSession = Depends(get_db), 
     await db.execute(delete(Resource).where(Resource.id == resource_id))
     await db.commit()
     return {"message": "deleted"}
+
+
+@router.post("/resources/bulk-delete")
+async def bulk_delete_resources(payload: dict, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    """批量删除资源(清理查重/低质量条目backlog用)"""
+    ids = payload.get("ids") or []
+    if not ids or not isinstance(ids, list):
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+    await db.execute(delete(ResourceLink).where(ResourceLink.resource_id.in_(ids)))
+    result = await db.execute(delete(Resource).where(Resource.id.in_(ids)))
+    await db.commit()
+    return {"message": f"已删除 {result.rowcount} 条资源"}
 
 
 @router.post("/links", response_model=dict)
@@ -527,29 +543,58 @@ async def get_tasks(_=Depends(verify_admin)):
 @router.get("/duplicates")
 async def get_duplicates(
     limit: int = 50,
+    fuzzy: bool = False,
     db: AsyncSession = Depends(get_db),
     _=Depends(verify_admin),
 ):
-    """B: 找出重复标题的资源（按标题+年份去重）"""
-    stmt = text("""
-        SELECT title, year, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
-        FROM resources
-        GROUP BY title, year
-        HAVING cnt > 1
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """)
-    rows = (await db.execute(stmt, {"limit": limit})).fetchall()
+    """B: 找出重复标题的资源。
+    fuzzy=false(默认): 完全同标题+同年份，精确匹配，误判率几乎为0
+    fuzzy=true: 标题清洗(去画质/版本/季数标签+标点空格)后同key+同年份，
+                能抓到"标点/空格不同"的近似重复，但也更容易有误判，仅供人工审核
+    """
+    if not fuzzy:
+        stmt = text("""
+            SELECT title, year, COUNT(*) as cnt, GROUP_CONCAT(id) as ids
+            FROM resources
+            GROUP BY title, year
+            HAVING cnt > 1
+            ORDER BY cnt DESC
+            LIMIT :limit
+        """)
+        rows = (await db.execute(stmt, {"limit": limit})).fetchall()
+        result = []
+        for row in rows:
+            ids = [int(i) for i in row.ids.split(",")]
+            resources = (await db.execute(
+                select(Resource).where(Resource.id.in_(ids)).options(selectinload(Resource.links))
+            )).scalars().all()
+            result.append({
+                "title": row.title,
+                "year": row.year,
+                "count": row.cnt,
+                "resources": [{
+                    "id": r.id, "title": r.title, "year": r.year,
+                    "category": r.category, "poster_url": r.poster_url,
+                    "link_count": len(r.links),
+                } for r in resources],
+            })
+        return result
+
+    # fuzzy 模式：把全表 id/title/year 拉到内存里分组(6000+条毫秒级，不需要SQL层面处理)
+    all_rows = (await db.execute(select(Resource.id, Resource.title, Resource.year))).all()
+    groups = group_fuzzy_duplicates([{"id": r.id, "title": r.title, "year": r.year} for r in all_rows])
+    groups = groups[:limit]
+
     result = []
-    for row in rows:
-        ids = [int(i) for i in row.ids.split(",")]
+    for g in groups:
+        ids = [r["id"] for r in g["resources"]]
         resources = (await db.execute(
             select(Resource).where(Resource.id.in_(ids)).options(selectinload(Resource.links))
         )).scalars().all()
         result.append({
-            "title": row.title,
-            "year": row.year,
-            "count": row.cnt,
+            "title": g["key"],
+            "year": g["year"],
+            "count": len(resources),
             "resources": [{
                 "id": r.id, "title": r.title, "year": r.year,
                 "category": r.category, "poster_url": r.poster_url,
@@ -559,14 +604,9 @@ async def get_duplicates(
     return result
 
 
-@router.post("/resources/{keep_id}/merge/{dup_id}")
-async def merge_resources(
-    keep_id: int,
-    dup_id: int,
-    db: AsyncSession = Depends(get_db),
-    _=Depends(verify_admin),
-):
-    """B: 将 dup_id 的链接合并到 keep_id，然后删除 dup_id"""
+async def _merge_one(db: AsyncSession, keep_id: int, dup_id: int) -> int:
+    """将 dup_id 的链接合并到 keep_id，补全 keep 缺失的元数据，然后删除 dup_id。
+    不 commit，调用方负责(单个合并/批量合并整组都复用这个)。返回移动的链接数。"""
     keep = await db.get(Resource, keep_id)
     dup = await db.get(Resource, dup_id)
     if not keep or not dup:
@@ -596,8 +636,39 @@ async def merge_resources(
 
     await db.flush()
     await db.execute(delete(Resource).where(Resource.id == dup_id))
+    return moved
+
+
+@router.post("/resources/{keep_id}/merge/{dup_id}")
+async def merge_resources(
+    keep_id: int,
+    dup_id: int,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    """B: 将 dup_id 的链接合并到 keep_id，然后删除 dup_id"""
+    moved = await _merge_one(db, keep_id, dup_id)
     await db.commit()
     return {"message": f"已合并：移动 {moved} 条链接，删除资源 {dup_id}"}
+
+
+@router.post("/duplicates/merge-group")
+async def merge_duplicate_group(payload: dict, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    """B: 一键合并一整组重复资源(查重结果里的一组)，全部合并进 keep_id"""
+    keep_id = payload.get("keep_id")
+    dup_ids = payload.get("dup_ids") or []
+    if not keep_id or not dup_ids or not isinstance(dup_ids, list):
+        raise HTTPException(status_code=400, detail="keep_id 和 dup_ids 不能为空")
+
+    total_moved = 0
+    merged_count = 0
+    for dup_id in dup_ids:
+        if dup_id == keep_id:
+            continue
+        total_moved += await _merge_one(db, keep_id, dup_id)
+        merged_count += 1
+    await db.commit()
+    return {"message": f"已合并整组：{merged_count} 条资源，移动 {total_moved} 条链接"}
 
 
 async def run_link_check(max_per_run: int, task_id: Optional[str] = None):
@@ -656,6 +727,140 @@ async def check_links(
     task_registry.start_task(task_id, f"链接有效性检测（最多 {max_per_run} 条）", total=max_per_run)
     asyncio.create_task(run_link_check(max_per_run, task_id))
     return {"message": f"链接检测已启动，任务 ID: {task_id}", "task_id": task_id}
+
+
+async def run_poster_check(max_per_run: int, task_id: Optional[str] = None):
+    """对资源海报图链接发送 HEAD 请求，失效的直接清空 poster_url(这样已有的
+    no_poster 筛选就能自然拿到它去做后续修复)。优先检测最久未检测过的，
+    保证全量海报能被轮转覆盖到。"""
+    from database import AsyncSessionLocal
+    import aiohttp
+    from sqlalchemy import func as _func
+
+    async with AsyncSessionLocal() as fetch_db:
+        stmt = (
+            select(Resource.id, Resource.poster_url)
+            .where(Resource.poster_url.is_not(None), Resource.poster_url != "")
+            .order_by(Resource.poster_checked_at.asc().nulls_first())
+            .limit(max_per_run)
+        )
+        rows = (await fetch_db.execute(stmt)).all()
+        posters = [(r.id, r.poster_url) for r in rows]
+
+    broken_count = 0
+    headers = {"User-Agent": "Mozilla/5.0"}
+    async with aiohttp.ClientSession(headers=headers) as session:
+        for i, (resource_id, url) in enumerate(posters):
+            still_ok = True
+            try:
+                async with session.head(url, timeout=aiohttp.ClientTimeout(total=8), allow_redirects=True) as resp:
+                    if resp.status in (404, 403, 410):
+                        still_ok = False
+            except Exception:
+                pass
+            async with AsyncSessionLocal() as inner_db:
+                resource = await inner_db.get(Resource, resource_id)
+                if resource:
+                    resource.poster_checked_at = _func.now()
+                    if not still_ok:
+                        resource.poster_url = None
+                        broken_count += 1
+                    await inner_db.commit()
+            if task_id:
+                task_registry.update_task(task_id, done=i + 1, message=f"已检测 {i+1}/{len(posters)}，失效 {broken_count} 条")
+
+    msg = f"检测完成：{len(posters)} 条，失效 {broken_count} 条"
+    if task_id:
+        task_registry.finish_task(task_id, "success", msg)
+    return {"checked": len(posters), "broken": broken_count}
+
+
+@router.post("/check-posters")
+async def check_posters(
+    max_per_run: int = 30,
+    _=Depends(verify_admin),
+):
+    """B: 对资源海报图链接发送 HEAD 请求，失效的清空 poster_url"""
+    task_id = f"check_posters_{int(asyncio.get_event_loop().time())}"
+    task_registry.start_task(task_id, f"海报链接检测（最多 {max_per_run} 条）", total=max_per_run)
+    asyncio.create_task(run_poster_check(max_per_run, task_id))
+    return {"message": f"海报检测已启动，任务 ID: {task_id}", "task_id": task_id}
+
+
+_CATEGORY_TO_TMDB_MEDIA_TYPE = {"电影": "movie", "电视剧": "tv"}
+
+
+async def run_bulk_enrich_tmdb(max_per_run: int, task_id: Optional[str] = None):
+    """批量用 TMDb 数据补全缺失元数据(海报/简介/年份)的电影/电视剧资源。
+    动漫已有专门的 bangumi-enrich，这里只覆盖 电影/电视剧 两类。
+    匹配策略：标题搜索，同 media_type 候选里优先年份最接近的(±1年内)，
+    否则取第一条；完全没搜到候选的直接跳过，不做低置信度的强行匹配。
+    """
+    from database import AsyncSessionLocal
+    from api.tmdb import search_tmdb_multi, apply_tmdb_data
+    from config import settings as _settings
+
+    if not _settings.TMDB_API_KEY:
+        if task_id:
+            task_registry.finish_task(task_id, "failed", "TMDB_API_KEY 未配置")
+        return {"processed": 0, "enriched": 0}
+
+    async with AsyncSessionLocal() as fetch_db:
+        stmt = (
+            select(Resource)
+            .where(
+                Resource.category.in_(list(_CATEGORY_TO_TMDB_MEDIA_TYPE.keys())),
+                (Resource.poster_url.is_(None)) | (Resource.poster_url == "")
+                | (Resource.synopsis.is_(None)) | (Resource.synopsis == "")
+                | (Resource.year.is_(None)),
+            )
+            .order_by(Resource.id)
+            .limit(max_per_run)
+        )
+        resources = (await fetch_db.execute(stmt)).scalars().all()
+        targets = [(r.id, r.title, r.year, r.category) for r in resources]
+
+    enriched_count = 0
+    for i, (resource_id, title, year, category) in enumerate(targets):
+        media_type = _CATEGORY_TO_TMDB_MEDIA_TYPE.get(category, "movie")
+        try:
+            candidates = await search_tmdb_multi(title)
+            same_type = [c for c in candidates if c["media_type"] == media_type]
+            best = None
+            if same_type:
+                if year:
+                    # 有年份就优先取候选里年份最接近的(未知年份的候选排最后)
+                    same_type.sort(key=lambda c: abs(int(c["year"]) - year) if c["year"] else 999)
+                best = same_type[0]
+
+            if best:
+                async with AsyncSessionLocal() as inner_db:
+                    resource = await inner_db.get(Resource, resource_id)
+                    if resource:
+                        await apply_tmdb_data(resource, best["tmdb_id"], media_type)
+                        await inner_db.commit()
+                        enriched_count += 1
+        except Exception as e:
+            logger.warning(f"批量TMDb补全失败 resource_id={resource_id}: {e}")
+        if task_id:
+            task_registry.update_task(task_id, done=i + 1, message=f"已处理 {i+1}/{len(targets)}，补全 {enriched_count} 条")
+
+    msg = f"处理完成：{len(targets)} 条，成功补全 {enriched_count} 条"
+    if task_id:
+        task_registry.finish_task(task_id, "success", msg)
+    return {"processed": len(targets), "enriched": enriched_count}
+
+
+@router.post("/bulk-enrich-tmdb")
+async def bulk_enrich_tmdb(
+    max_per_run: int = 30,
+    _=Depends(verify_admin),
+):
+    """B: 批量用 TMDb 补全缺失海报/简介/年份的电影/电视剧资源"""
+    task_id = f"bulk_enrich_tmdb_{int(asyncio.get_event_loop().time())}"
+    task_registry.start_task(task_id, f"批量TMDb补全（最多 {max_per_run} 条）", total=max_per_run)
+    asyncio.create_task(run_bulk_enrich_tmdb(max_per_run, task_id))
+    return {"message": f"批量补全已启动，任务 ID: {task_id}", "task_id": task_id}
 
 
 @router.post("/backup")
@@ -838,3 +1043,50 @@ async def list_downloads(limit: int = 30, db: AsyncSession = Depends(get_db), _=
         "disk_used_gb": used_gb,
         "disk_quota_gb": settings.DOWNLOAD_QUOTA_GB,
     }
+
+
+async def record_disk_usage_snapshot():
+    """每天记一行磁盘占用快照，供管理后台画简单的历史趋势图。main.py 按天调度。"""
+    from api.downloads import _dir_size_bytes
+    from database import AsyncSessionLocal
+
+    download_gb = round(_dir_size_bytes(settings.DOWNLOAD_DIR) / (1024 ** 3), 3)
+    backups_gb = round(_dir_size_bytes("backups") / (1024 ** 3), 3)
+
+    async with AsyncSessionLocal() as db:
+        db.add(DiskUsageSnapshot(download_dir_gb=download_gb, backups_dir_gb=backups_gb))
+        await db.commit()
+
+
+@router.get("/disk-usage-history")
+async def get_disk_usage_history(days: int = 30, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    stmt = (
+        select(DiskUsageSnapshot)
+        .order_by(DiskUsageSnapshot.recorded_at.desc())
+        .limit(days)
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {"recorded_at": r.recorded_at, "download_dir_gb": r.download_dir_gb, "backups_dir_gb": r.backups_dir_gb}
+        for r in reversed(rows)
+    ]
+
+
+@router.delete("/downloads/{download_id}")
+async def delete_download(download_id: int, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
+    """删除下载任务：清掉DB行+已有文件。注意：如果任务当前仍是 queued/downloading，
+    这不能真正杀掉底层可能还在跑的 yt-dlp 线程(Python线程无法强制终止，跟
+    ytdlp_client.py 里卡死线程是同一个根因限制)——只是让它从监控列表和数据库里消失、
+    释放已占用的部分文件空间，管理员至少有个操作空间。"""
+    import os as _os
+    row = await db.get(Download, download_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="下载任务不存在")
+    if row.file_path and _os.path.exists(row.file_path):
+        try:
+            _os.remove(row.file_path)
+        except OSError:
+            pass
+    await db.delete(row)
+    await db.commit()
+    return {"message": "已删除"}

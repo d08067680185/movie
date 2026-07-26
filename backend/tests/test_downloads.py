@@ -230,3 +230,65 @@ async def test_cleanup_marks_stalled_tasks_as_error(db_session):
     await db_session.refresh(row)
     assert row.status == "error"
     assert row.error_message is not None
+
+
+@pytest.mark.asyncio
+async def test_create_download_dedupes_in_flight_identical_url(db_session, monkeypatch):
+    calls = []
+
+    async def fake_download(url, download_dir, task_id):
+        calls.append(task_id)
+        return {"file_path": "/tmp/fake.mp4", "total_bytes": 1, "title": "fake"}
+
+    monkeypatch.setattr(ytdlp_client, "download", fake_download)
+
+    url = "https://www.youtube.com/watch?v=dedupe_test"
+    async with _client() as client:
+        r1 = await client.post("/api/downloads", json={"url": url})
+        r2 = await client.post("/api/downloads", json={"url": url})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert r1.json()["id"] == r2.json()["id"]
+
+    # 确认数据库里也确实只有一条 in-flight 记录，不是"返回了同一个id但其实建了两条"
+    from sqlalchemy import select
+    rows = (await db_session.execute(select(Download).where(Download.source_url == url))).scalars().all()
+    assert len(rows) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_download_does_not_dedupe_completed_tasks(db_session):
+    """已完成的任务不应该被复用——同一链接完成后应该能重新发起下载。"""
+    url = "https://www.youtube.com/watch?v=completed_test"
+    row = Download(source_url=url, status="complete", requester_ip="3.3.3.3")
+    db_session.add(row)
+    await db_session.commit()
+
+    from api.downloads import _find_in_flight_task
+    existing = await _find_in_flight_task(db_session, url)
+    assert existing is None
+
+
+@pytest.mark.asyncio
+async def test_run_download_task_marks_error_on_wall_clock_timeout(db_session, monkeypatch):
+    from api.downloads import _run_download_task
+    import api.downloads as downloads_module
+    import asyncio as asyncio_module
+
+    async def hanging_download(url, download_dir, task_id):
+        await asyncio_module.sleep(999)
+
+    monkeypatch.setattr(ytdlp_client, "download", hanging_download)
+    monkeypatch.setattr(downloads_module, "_DOWNLOAD_WALL_CLOCK_TIMEOUT", 0.05)
+
+    row = Download(source_url="https://x.com/hang", status="queued", requester_ip="4.4.4.4")
+    db_session.add(row)
+    await db_session.commit()
+    await db_session.refresh(row)
+
+    await _run_download_task(row.id, row.source_url)
+
+    await db_session.refresh(row)
+    assert row.status == "error"
+    assert "超时" in row.error_message or "过长" in row.error_message
