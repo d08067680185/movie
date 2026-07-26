@@ -60,6 +60,11 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_r_category_rating ON resources (category, rating DESC)",
             "CREATE INDEX IF NOT EXISTS idx_r_year ON resources (year DESC)",
             "CREATE INDEX IF NOT EXISTS idx_sl_count ON search_logs (count DESC)",
+            # 短关键词兜底走前缀匹配(ILIKE 编译成 lower(col) LIKE lower(pattern)，
+            # 普通列索引对此不生效，必须是表达式索引)
+            "CREATE INDEX IF NOT EXISTS idx_r_title_lower ON resources (LOWER(title))",
+            "CREATE INDEX IF NOT EXISTS idx_r_title_en_lower ON resources (LOWER(title_en))",
+            "CREATE INDEX IF NOT EXISTS idx_r_original_title_lower ON resources (LOWER(original_title))",
         ]:
             await conn.execute(text(sql))
         # 统一历史分类值

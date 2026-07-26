@@ -86,3 +86,30 @@ async def test_fetch_pansou_uses_short_timeout(monkeypatch):
     with pytest.raises(httpx.ConnectError):
         await ls._fetch_pansou("keyword", refresh=False)
     assert captured["timeout"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_livesearch_cache_key_normalized_across_case_and_whitespace(monkeypatch, db_session):
+    """"Iron Man" 和 "iron  man"(大小写不同+内部多余空格) 应该命中同一个缓存槽，
+    第二次请求不应该再真的去打 PanSou。"""
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    call_count = {"n": 0}
+
+    async def fake_fetch(keyword, refresh):
+        call_count["n"] += 1
+        return {"total": 0, "by_type": {}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r1 = await client.get("/api/livesearch", params={"q": "Iron Man"})
+        r2 = await client.get("/api/livesearch", params={"q": "iron  man"})
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert call_count["n"] == 1  # 第二次应该命中缓存，不应该再调用 _fetch_pansou
+    ls._cache.clear()

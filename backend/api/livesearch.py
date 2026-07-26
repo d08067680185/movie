@@ -18,6 +18,7 @@ from config import settings
 from database import get_db
 from models import SearchLog
 from utils import send_telegram
+from textnorm import normalize_keyword
 
 logger = logging.getLogger(__name__)
 
@@ -149,10 +150,14 @@ async def livesearch(
     keyword = q.strip()
     if not keyword:
         raise HTTPException(status_code=400, detail="关键词不能为空")
+    # 缓存key/热词统计用归一化后的关键词(大小写不敏感+空白折叠)，避免"三体"和
+    # "三体 "(尾部空格)/大小写不同的英文标题各占一个缓存槽、热词各算一条；实际
+    # 发给 PanSou 的查询串仍用用户原始输入，不影响上游搜索语义
+    cache_key = normalize_keyword(keyword)
 
     _stats["requests"] += 1
     now = time.time()
-    cached = _cache.get(keyword)
+    cached = _cache.get(cache_key)
     if cached and not refresh and (now - cached[0]) < _CACHE_TTL:
         _stats["cache_hits"] += 1
         payload = cached[1]
@@ -172,9 +177,11 @@ async def livesearch(
             if len(_cache) >= _CACHE_MAX:
                 oldest = min(_cache, key=lambda k: _cache[k][0])
                 _cache.pop(oldest, None)
-            _cache[keyword] = (now, payload)
+            _cache[cache_key] = (now, payload)
 
-        # 记入搜索热词（与本地搜共用 SearchLog）
+        # 记入搜索热词（与本地搜共用 SearchLog）——用原始大小写的 keyword 而不是
+        # 归一化后的 cache_key，因为这张表的值会直接展示成热词chip文字，
+        # casefold 后会让"Iron Man"变成"iron man"这种可见的展示回归
         try:
             ins = sqlite_insert(SearchLog).values(keyword=keyword, count=1)
             ins = ins.on_conflict_do_update(

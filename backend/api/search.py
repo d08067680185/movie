@@ -1,3 +1,4 @@
+import re
 import time
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,6 +46,20 @@ def build_fts_query(keyword: str) -> str:
     return '"' + keyword.replace('"', '""') + '"'
 
 
+_GLOB_SPECIAL_RE = re.compile(r"([*?\[\]])")
+
+
+def build_prefix_glob(keyword: str) -> str:
+    """短关键词前缀匹配用 GLOB 而不是 LIKE：SQLite 只有 GLOB(大小写敏感)能在
+    lower()表达式索引上被查询规划器识别成范围扫描——同样语义的 LIKE 哪怕绑定
+    参数也始终被规划成全表扫描(除非全局打开 case_sensitive_like，会影响全站
+    其它 ILIKE 查询，风险更大，弃用)。GLOB 的 `* ? [ ]` 是元字符，用户输入里
+    如果真包含这几个符号要转义成字符类(如 `*` -> `[*]`)，否则会被当成通配符。
+    """
+    escaped = _GLOB_SPECIAL_RE.sub(lambda m: f"[{m.group(1)}]", keyword.casefold())
+    return escaped + "*"
+
+
 async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
     """批量获取资源的有效链接数量"""
     if not resource_ids:
@@ -78,6 +93,7 @@ async def search(
 ):
     stmt = select(Resource)
 
+    bm25_rank_map: Optional[dict] = None
     if q.strip():
         keyword = q.strip()
         if len(keyword) >= 3:
@@ -85,23 +101,31 @@ async def search(
             fts_query = build_fts_query(keyword)
             fts_rows = (
                 await db.execute(
-                    text("SELECT rowid FROM resources_fts WHERE resources_fts MATCH :kw"),
+                    text(
+                        "SELECT rowid, bm25(resources_fts) AS rank FROM resources_fts "
+                        "WHERE resources_fts MATCH :kw ORDER BY rank"
+                    ),
                     {"kw": fts_query},
                 )
             ).all()
             matched_ids = [row[0] for row in fts_rows]
+            # bm25 分数越低越相关；用 FTS 返回顺序的名次做排序键(名次越小越靠前)，
+            # 而不是直接用分数——分数量纲跟别的排序列不好比较，名次更简单可控
+            bm25_rank_map = {rid: i for i, rid in enumerate(matched_ids)}
             stmt = stmt.where(Resource.id.in_(matched_ids))
         else:
-            # trigram 索引至少需要3个字符才能匹配，短关键词兜底走 ilike
-            kw = f"%{keyword}%"
+            # trigram 索引至少需要3个字符才能匹配，短关键词兜底改前缀匹配(标题
+            # 开头是这几个字)，用 GLOB(不是ILIKE，见build_prefix_glob注释)配合
+            # database.py 里新建的 LOWER() 表达式索引才能真正走索引而不是全表
+            # 扫描；directors/actors/synopsis 从这个兜底路径里去掉——这几个字段
+            # 前缀匹配没有意义，留着子串匹配又会因为 OR 条件里有一支不可索引而
+            # 拖累整个查询变回全表扫描，直接抵消加索引的收益
+            glob_pattern = build_prefix_glob(keyword)
             stmt = stmt.where(
                 or_(
-                    Resource.title.ilike(kw),
-                    Resource.title_en.ilike(kw),
-                    Resource.original_title.ilike(kw),
-                    Resource.directors.ilike(kw),
-                    Resource.actors.ilike(kw),
-                    Resource.synopsis.ilike(kw),
+                    func.lower(Resource.title).op("GLOB")(glob_pattern),
+                    func.lower(Resource.title_en).op("GLOB")(glob_pattern),
+                    func.lower(Resource.original_title).op("GLOB")(glob_pattern),
                 )
             )
         ins = sqlite_insert(SearchLog).values(keyword=q.strip(), count=1)
@@ -139,7 +163,8 @@ async def search(
     total = (await db.execute(count_stmt)).scalar()
 
     order_cols = _ORDER_MAP.get(sort, _ORDER_MAP["popular"])
-    # 有搜索词时：精确标题匹配排在最前面
+    # 有搜索词时：精确/前缀标题匹配排最前，其次按FTS5相关度(bm25)，
+    # 同等相关度再按热度/评分等常规排序做 tiebreak
     if q.strip():
         from sqlalchemy import case
         exact = q.strip()
@@ -149,7 +174,11 @@ async def search(
             (Resource.title.ilike(f"{exact}%"), 2),
             else_=3,
         )
-        stmt = stmt.order_by(relevance, *order_cols)
+        order_by_cols = [relevance]
+        if bm25_rank_map:
+            order_by_cols.append(case(bm25_rank_map, value=Resource.id, else_=len(bm25_rank_map)))
+        order_by_cols.extend(order_cols)
+        stmt = stmt.order_by(*order_by_cols)
     else:
         stmt = stmt.order_by(*order_cols)
     stmt = stmt.offset((page - 1) * page_size).limit(page_size)
