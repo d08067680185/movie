@@ -190,8 +190,10 @@ async def livesearch(
             )
             await db.execute(ins)
             await db.commit()
-        except Exception:
-            pass
+        except Exception as e:
+            # 热词统计失败不应该影响本次搜索结果返回，但完全静默会让"热词为什么
+            # 一直不更新"这种问题排查不出来，至少留个痕迹
+            logger.warning("全网搜热词写入失败 keyword=%s: %s", keyword, e)
 
     by_type = payload["by_type"]
     types = [{"type": t, "count": len(items)} for t, items in by_type.items()]

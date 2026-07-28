@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Settings, Play, ToggleLeft, ToggleRight, Plus, RefreshCw, Database, Search, Upload, Image as ImageIcon, Lock, FilePlus, Bell, HardDrive, GitMerge, AlertTriangle, CheckCircle, Trash2 } from "lucide-react";
+import { deleteDownloadAction, bulkDeleteResourcesAction, mergeGroupAction } from "@/lib/adminDestructiveActions";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "";
 
@@ -237,9 +238,8 @@ export default function AdminPage() {
   }
 
   async function deleteDownload(id: number) {
-    if (!confirm(`删除下载任务 #${id}？\n如果任务还在下载中，无法真正终止底层进程，但会从列表和数据库中移除、释放已占用的部分文件空间。`)) return;
-    const resp = await apiFetch(`/api/admin/downloads/${id}`, { method: "DELETE" }, token);
-    if (resp.ok) {
+    const r = await deleteDownloadAction(id, token, apiFetch, confirm);
+    if (r.ok) {
       setMsg("已删除下载任务");
       loadDownloadMon();
     }
@@ -426,12 +426,10 @@ export default function AdminPage() {
   }
 
   async function bulkDeleteSelectedResources() {
-    if (selectedResourceIds.length === 0) return;
-    if (!confirm(`确认批量删除选中的 ${selectedResourceIds.length} 条资源及其所有链接？此操作不可恢复。`)) return;
-    const resp = await apiFetch("/api/admin/resources/bulk-delete", { method: "POST", body: JSON.stringify({ ids: selectedResourceIds }) }, token);
-    if (resp.ok) {
-      const d = await resp.json();
-      setMsg(d.message);
+    const r = await bulkDeleteResourcesAction(selectedResourceIds, token, apiFetch, confirm);
+    if (r.cancelled) return;
+    if (r.ok) {
+      setMsg(r.message ?? "");
       setSelectedResourceIds([]);
       loadResources();
     } else {
@@ -717,14 +715,9 @@ export default function AdminPage() {
   }
 
   async function mergeGroup(keepId: number, dupIds: number[], title: string) {
-    if (!confirm(`一键合并「${title}」整组？\n将保留 ID:${keepId}，把其余 ${dupIds.length} 条的链接合并进来后删除。`)) return;
-    const resp = await apiFetch("/api/admin/duplicates/merge-group", {
-      method: "POST",
-      body: JSON.stringify({ keep_id: keepId, dup_ids: dupIds }),
-    }, token);
-    if (resp.ok) {
-      const d = await resp.json();
-      setMsg(d.message);
+    const r = await mergeGroupAction(keepId, dupIds, title, token, apiFetch, confirm);
+    if (r.ok) {
+      setMsg(r.message ?? "");
       loadDuplicates();
     }
   }

@@ -85,7 +85,7 @@ async def search(
     country: Optional[str] = Query(None, max_length=50),
     min_rating: Optional[float] = Query(None, ge=0, le=10),
     has_links: Optional[bool] = None,
-    sort: str = Query("popular", regex="^(popular|rating|newest|latest)$"),
+    sort: str = Query("popular", pattern="^(popular|rating|newest|latest)$"),
     page: int = Query(1, ge=1, le=1000),
     page_size: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),

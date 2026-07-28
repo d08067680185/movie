@@ -938,8 +938,10 @@ async def set_telegram_config(payload: dict, _=Depends(verify_admin)):
             lines.append(f"TELEGRAM_CHAT_ID={chat_id}\n")
         with open(env_path, "w") as f:
             f.writelines(lines)
-    except Exception:
-        pass
+    except Exception as e:
+        # 内存里的配置这次请求仍然生效，但没写进 .env 意味着容器重启后会丢失，
+        # 且管理员完全看不到任何提示——之前是彻底静默，至少留个日志
+        logger.warning(f"Telegram配置写入 .env 失败(本次请求内存中仍生效，重启后会丢失): {e}")
 
     if token and chat_id:
         await send_telegram("✅ 影视搜索系统 Telegram 通知已配置成功！")

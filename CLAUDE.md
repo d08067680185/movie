@@ -242,6 +242,14 @@ Docker internal:
 
 **CI now runs lint + dependency audits (2026-07-26)**: `.github/workflows/ci.yml` added `npm run lint` (blocking) and `pip-audit`/`npm audit --audit-level=high` (both `continue-on-error: true`, report-only — flagged as needing human judgment on whether/when to upgrade, not auto-blocking). First real run surfaced actual outstanding CVEs in `aiohttp==3.11.10` and `starlette==0.41.3` (transitive via FastAPI) — **not yet upgraded as of this note**, needs a deliberate version-bump pass with its own testing, not a drive-by dependency bump.
 
+**运维加固轮 (2026-07-28)**：
+- **依赖升级，含强行突破FastAPI官方兼容范围**：`backend/requirements.txt` 升到 FastAPI 0.140.0（其余依赖同步打补丁）。FastAPI 0.140.0 自己声明的依赖范围仍是 `starlette<0.51.0`，但 starlette 的 CVE 修复只在 1.0.1+ 才有（[FastAPI issue #15193](https://github.com/fastapi/fastapi/issues/15193) 记录的已知落差）——按用户明确决定强行固定 `starlette==1.3.1`，突破FastAPI官方测试过的组合范围。全量87个pytest + 手动烟测（含完整 yt-dlp 下载→FileResponse 链路、CORS预检头、admin鉴权、`/api/search`）全部通过，仅 `api/search.py` 需要把废弃的 `Query(..., regex=)` 改成 `pattern=`。**这是有意接受的风险**，一旦 starlette 后续版本出现新的破坏性行为需要单独关注。
+- **Docker 资源限制** (`docker-compose.yml`)：backend 512M/1.5cpu、pansou 384M/1.0cpu、frontend 256M/0.5cpu。数字来自实测——部署机（Mac mini）Docker Desktop 的 VM 实际只分到 5 vCPU/2.845GiB（`docker info` 查得，远小于宿主机本身的16GB/10核），且同一台机器上跑着其他项目共13个容器。`docker compose config` 已在部署机上验证 Compose v5.1.4 非 Swarm 模式下也能正确解析 `deploy.resources.limits`。
+- **日志轮转** (`auto-pull.sh`)：`auto-pull.log` 从未轮转过（实测已到4.4MB），超过5MB时转存为 `.1` 后清空，只留一代历史。
+- **备份恢复演练** (`backend/utils.py:verify_backup_restorable`)：`PRAGMA integrity_check` 只能证明备份文件结构没损坏，测不出"结构对但关键表是空的"这种坏备份。新增只读连接对 `resources`/`resource_links`/`sources` 三张表跑 sanity COUNT，`resources` 为0或查询失败都判定为坏备份并删除。`backup_db()` 在完整性校验通过后再跑这一步。
+- **两处静默失败补日志**（不改变行为，只是从完全静默改成 `logger.warning`）：`api/livesearch.py` 热词写入失败、`api/admin.py` Telegram配置写 `.env` 失败。其余故意静默的 `except` 块（HEAD探活/view_count计数竞争）经复核判断维持原样不动。
+- **前端首次引入 Vitest**（此前零测试，后端已有87个pytest）：只针对 admin 面板三个破坏性操作写基本测试，不是给整个前端补全测试覆盖。`admin/page.tsx` 里 `deleteDownload`/`bulkDeleteSelectedResources`/`mergeGroup` 三个函数的核心逻辑抽到 `frontend/src/lib/adminDestructiveActions.ts`（`apiFetch`/`confirm` 作为参数注入，不依赖具体实现，纯函数式方便测试）——**这不是重构整个1900+行admin组件**，其余状态更新（`setMsg`/`loadXxx()`）仍留在 `admin/page.tsx` 里调用方内联。10个测试覆盖：取消确认框不发请求、请求URL/方法/body正确、成功/失败路径的返回值。CI (`ci.yml`) 新增 `npm run test` 挡在 `npm run build` 之前。
+
 ### Frontend Core Files
 
 | File | Purpose |

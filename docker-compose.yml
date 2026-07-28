@@ -27,6 +27,20 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # 部署机 Docker Desktop VM 只分到 5 vCPU / 2.845GiB(docker info 实测)，还跑着其他
+    # 好几个项目的容器；这里给的是保守上限，不是"应得配额"——只是防止 yt-dlp+ffmpeg
+    # 合并等突发内存尖峰把同一台机器上别的站点也拖垮(历史上出过 auto-pull.sh 里记录的
+    # "5个build并发、load 9.8、全站超时"事故，这次是防同类问题但换成运行时场景)
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.5"
 
   pansou:
     image: ghcr.io/fish2018/pansou:latest
@@ -42,6 +56,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "1.0"
 
   frontend:
     build:
@@ -58,3 +82,13 @@ services:
       - "8092:3000"
     depends_on:
       - backend
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
