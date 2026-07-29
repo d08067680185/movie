@@ -11,6 +11,9 @@ from api.admin import router as admin_router
 from api.tmdb import router as tmdb_router
 from api.livesearch import router as livesearch_router
 from api.downloads import router as downloads_router, cleanup_expired_downloads
+from api.sections import router as sections_router
+from api.pan_transfer import router as pan_transfer_router
+from pan_transfer.worker import run_pending_transfers
 from config import settings
 from spiders.scheduler import run_all_spiders
 from utils import backup_db, send_telegram
@@ -88,6 +91,13 @@ async def lifespan(app: FastAPI):
         minute=30,
         id="disk_usage_snapshot",
     )
+    scheduler.add_job(
+        lambda: asyncio.create_task(run_pending_transfers()),
+        "interval",
+        seconds=settings.PAN_TRANSFER_POLL_SECONDS,
+        id="pan_transfer_poll",
+        next_run_time=datetime.now() + timedelta(minutes=1),
+    )
     scheduler.start()
     logger.info("Scheduler started")
 
@@ -116,6 +126,8 @@ app.include_router(admin_router)
 app.include_router(tmdb_router)
 app.include_router(livesearch_router)
 app.include_router(downloads_router)
+app.include_router(sections_router)
+app.include_router(pan_transfer_router)
 
 
 @app.get("/health")

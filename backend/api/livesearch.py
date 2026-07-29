@@ -27,6 +27,16 @@ router = APIRouter(prefix="/api", tags=["livesearch"])
 # 展示顺序即优先级；不在此表的类型（magnet/ed2k等）不返回
 CLOUD_TYPES = ["quark", "baidu", "aliyun", "uc", "xunlei", "115", "123", "tianyi", "mobile", "pikpak"]
 
+# PanSou 本身没有内容分类概念(搜的是TG分享群/插件源的原始文本)，只能靠给查询词
+# 追加板块相关的限定词来做粗略加权，不是精确过滤——video 板块沿用原有行为不加限定词，
+# 避免搜索结果因为新逻辑而变化
+SECTION_KEYWORD_HINTS = {
+    "software": "软件",
+    "ebook": "电子书",
+    "music": "音乐",
+    "game": "游戏",
+}
+
 _URL_RE = re.compile(r"https?://\S+")
 
 _cache: dict = {}          # keyword -> (ts, payload)
@@ -144,6 +154,7 @@ async def livesearch_health():
 async def livesearch(
     q: str = Query(..., min_length=1, max_length=100, description="搜索关键词"),
     cloud_type: Optional[str] = Query(None, max_length=20, description="按网盘类型过滤"),
+    section: Optional[str] = Query(None, max_length=20, description="板块 key，非video时会给查询词追加板块限定词做粗略加权"),
     refresh: bool = Query(False, description="绕过缓存强制刷新"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -153,7 +164,11 @@ async def livesearch(
     # 缓存key/热词统计用归一化后的关键词(大小写不敏感+空白折叠)，避免"三体"和
     # "三体 "(尾部空格)/大小写不同的英文标题各占一个缓存槽、热词各算一条；实际
     # 发给 PanSou 的查询串仍用用户原始输入，不影响上游搜索语义
-    cache_key = normalize_keyword(keyword)
+    hint = SECTION_KEYWORD_HINTS.get(section or "")
+    upstream_keyword = f"{keyword} {hint}" if hint else keyword
+    # 板块不同时哪怕关键词一样，发给PanSou的查询串也不同，缓存槽必须区分，否则
+    # 软件板块搜"三体"会命中影视板块缓存的结果
+    cache_key = f"{section or ''}:{normalize_keyword(keyword)}"
 
     _stats["requests"] += 1
     now = time.time()
@@ -166,7 +181,7 @@ async def livesearch(
             _stats["upstream_errors"] += 1
             raise HTTPException(status_code=503, detail="全网搜服务暂时不可用，请稍后重试")
         try:
-            payload = await _fetch_pansou(keyword, refresh)
+            payload = await _fetch_pansou(upstream_keyword, refresh)
             _circuit_record_success()
         except httpx.HTTPError as e:
             _stats["upstream_errors"] += 1

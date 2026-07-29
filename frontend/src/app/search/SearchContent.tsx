@@ -5,7 +5,8 @@ import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, Share2 } from 
 import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
-import { searchResources, SearchResult } from "@/lib/api";
+import { searchResources, getSections, SearchResult } from "@/lib/api";
+import { SECTIONS_FALLBACK } from "@/lib/utils";
 import LiveSearchResults from "@/components/LiveSearchResults";
 
 const CATEGORIES = [
@@ -60,6 +61,7 @@ export default function SearchContent() {
   const router = useRouter();
   const q = searchParams.get("q") || "";
   const mode = searchParams.get("mode") || "local"; // local=本地库 / live=全网实时聚合
+  const section = searchParams.get("section") || "";
   const category = searchParams.get("category") || "";
   const sort = searchParams.get("sort") || "popular";
   const page = parseInt(searchParams.get("page") || "1");
@@ -68,6 +70,20 @@ export default function SearchContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
+  const [sections, setSections] = useState(SECTIONS_FALLBACK);
+
+  useEffect(() => {
+    getSections().then((data) => {
+      if (data.length > 0) {
+        setSections(data.map((s) => ({ key: s.key, name: s.name, icon: s.icon || "" })));
+      }
+    });
+  }, []);
+
+  // 分类(电影/电视剧/动漫/经典资源)只属于影视动画板块，其它板块暂无子分类体系，
+  // 不显示分类筛选chips；未指定section时(旧链接兼容)沿用原有的"就是影视"行为
+  const showVideoCategories = !section || section === "video";
+  const activeSectionName = sections.find((s) => s.key === section)?.name;
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -90,6 +106,7 @@ export default function SearchContent() {
     const hasLinksParam = searchParams.get("has_links") === "true";
     searchResources({
       q,
+      section: section || undefined,
       category: category || undefined,
       year: year ? parseInt(year) : undefined,
       genre,
@@ -125,6 +142,7 @@ export default function SearchContent() {
   function clearAllFilters() {
     const sp = new URLSearchParams();
     if (q) sp.set("q", q);
+    if (section) sp.set("section", section);
     router.push(`/search${sp.toString() ? `?${sp.toString()}` : ""}`);
   }
 
@@ -205,7 +223,10 @@ export default function SearchContent() {
               </h1>
             ) : (
               <h1 className="text-xl font-bold">
-                {CATEGORIES.find((c) => c.value === category)?.label || "全部"} 资源
+                {showVideoCategories
+                  ? CATEGORIES.find((c) => c.value === category)?.label || "全部"
+                  : activeSectionName || "全部"}{" "}
+                资源
               </h1>
             )}
           </div>
@@ -273,7 +294,7 @@ export default function SearchContent() {
         <>
         {/* 分类 + 排序 + 筛选切换 */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          {CATEGORIES.map((cat) => (
+          {showVideoCategories && CATEGORIES.map((cat) => (
             <button
               key={cat.value}
               onClick={() => updateSearch({ category: cat.value })}

@@ -81,6 +81,18 @@ export default function AdminPage() {
     disk_quota_gb: number;
   } | null>(null);
   const [diskHistory, setDiskHistory] = useState<{ recorded_at: string; download_dir_gb: number; backups_dir_gb: number }[]>([]);
+  const [panAccounts, setPanAccounts] = useState<{
+    id: number; netdisk_type: string; alias: string; status: string;
+    capacity_used_gb: number | null; capacity_total_gb: number | null; last_used_at: string | null;
+  }[]>([]);
+  const [panTransfers, setPanTransfers] = useState<{
+    id: number; netdisk_type: string; source_title: string | null; source_url: string; status: string;
+    saved_share_url: string | null; saved_share_password: string | null; error_msg: string | null;
+  }[]>([]);
+  const [panAccountForm, setPanAccountForm] = useState({ netdisk_type: "quark", alias: "", credential: "" });
+  const [transferForm, setTransferForm] = useState({ netdisk_type: "quark", title: "", url: "", password: "" });
+  const [panTransferRunning, setPanTransferRunning] = useState(false);
+  const [panTransferEnabled, setPanTransferEnabled] = useState<boolean | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newSource, setNewSource] = useState({ name: "", spider_class: "demo", base_url: "", config: "{}" });
   const [msg, setMsg] = useState("");
@@ -171,6 +183,9 @@ export default function AdminPage() {
     loadTelegramStatus();
     loadBackups();
     loadSearchLogs();
+    loadPanAccounts();
+    loadTransfers();
+    loadPanTransferSettings();
   }, [authed]); // eslint-disable-line
 
   // 有运行中任务时每 3s 轮询
@@ -242,6 +257,95 @@ export default function AdminPage() {
     if (r.ok) {
       setMsg("已删除下载任务");
       loadDownloadMon();
+    }
+  }
+
+  async function loadPanAccounts() {
+    const resp = await apiFetch("/api/admin/pan/accounts", {}, token);
+    if (resp.ok) setPanAccounts(await resp.json());
+  }
+
+  async function loadTransfers() {
+    const resp = await apiFetch("/api/admin/pan/transfer?limit=50", {}, token);
+    if (resp.ok) setPanTransfers(await resp.json());
+  }
+
+  async function loadPanTransferSettings() {
+    const resp = await apiFetch("/api/admin/pan/settings", {}, token);
+    if (resp.ok) setPanTransferEnabled((await resp.json()).enabled);
+  }
+
+  async function togglePanTransferEnabled() {
+    if (panTransferEnabled === null) return;
+    const next = !panTransferEnabled;
+    const resp = await apiFetch("/api/admin/pan/settings", { method: "PATCH", body: JSON.stringify({ enabled: next }) }, token);
+    if (resp.ok) {
+      setPanTransferEnabled(next);
+      setMsg(next ? "网盘转存功能已开启" : "网盘转存功能已关闭");
+    } else {
+      setMsg("切换失败");
+    }
+  }
+
+  async function createPanAccount(e: React.FormEvent) {
+    e.preventDefault();
+    if (!panAccountForm.alias.trim() || !panAccountForm.credential.trim()) {
+      setMsg("备注名和Cookie不能为空");
+      return;
+    }
+    const resp = await apiFetch("/api/admin/pan/accounts", { method: "POST", body: JSON.stringify(panAccountForm) }, token);
+    if (resp.ok) {
+      setMsg("网盘账号已添加");
+      setPanAccountForm({ netdisk_type: panAccountForm.netdisk_type, alias: "", credential: "" });
+      loadPanAccounts();
+    } else {
+      const data = await resp.json().catch(() => ({}));
+      setMsg(data.detail || "添加失败");
+    }
+  }
+
+  async function deletePanAccount(id: number) {
+    if (!confirm("确认删除此网盘账号？关联的转存任务记录会保留但无法再执行。")) return;
+    const resp = await apiFetch(`/api/admin/pan/accounts/${id}`, { method: "DELETE" }, token);
+    if (resp.ok) {
+      setMsg("账号已删除");
+      loadPanAccounts();
+    }
+  }
+
+  async function checkPanQuota(id: number) {
+    const resp = await apiFetch(`/api/admin/pan/accounts/${id}/quota`, { method: "POST" }, token);
+    if (resp.ok) {
+      setMsg("配额已刷新");
+      loadPanAccounts();
+    } else {
+      setMsg("查询配额失败，请检查账号Cookie是否已失效");
+    }
+  }
+
+  async function submitPanTransfer(e: React.FormEvent) {
+    e.preventDefault();
+    if (!panTransferEnabled) { setMsg("网盘转存功能已关闭，请先开启"); return; }
+    if (!transferForm.url.trim()) { setMsg("分享链接不能为空"); return; }
+    setPanTransferRunning(true);
+    const resp = await apiFetch("/api/admin/pan/transfer", {
+      method: "POST",
+      body: JSON.stringify({
+        items: [{ netdisk_type: transferForm.netdisk_type, title: transferForm.title, url: transferForm.url, password: transferForm.password || undefined }],
+      }),
+    }, token);
+    setPanTransferRunning(false);
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.created_task_ids.length > 0) {
+        setMsg("转存任务已提交，稍后在下方列表查看进度");
+        setTransferForm({ netdisk_type: transferForm.netdisk_type, title: "", url: "", password: "" });
+        loadTransfers();
+      } else {
+        setMsg(data.skipped?.[0]?.reason || "提交失败：没有可用的网盘账号");
+      }
+    } else {
+      setMsg("提交失败");
     }
   }
 
@@ -1020,6 +1124,122 @@ export default function AdminPage() {
             )}
           </div>
         )}
+
+        {/* ══ 网盘转存 ══ */}
+        <div className="p-5 rounded-xl" style={{ background: DARK.bgCard, border: "1px solid rgba(255,255,255,0.08)" }}>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-bold">网盘转存</h2>
+              {panTransferEnabled !== null && (
+                <span className="text-xs px-2 py-0.5 rounded-full" style={panTransferEnabled
+                  ? { background: "rgba(74,222,128,0.15)", color: "#4ade80" }
+                  : { background: "rgba(248,113,113,0.15)", color: "#f87171" }}>
+                  {panTransferEnabled ? "已开启" : "已关闭"}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={togglePanTransferEnabled}
+                disabled={panTransferEnabled === null}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded"
+                style={{ background: "rgba(255,255,255,0.06)", color: panTransferEnabled ? "#4ade80" : "#606070" }}
+                title={panTransferEnabled ? "点击关闭" : "点击开启"}
+              >
+                {panTransferEnabled ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                {panTransferEnabled ? "开启中" : "已关闭"}
+              </button>
+              <button onClick={() => { loadPanAccounts(); loadTransfers(); loadPanTransferSettings(); }} className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: "#606070" }}>刷新</button>
+            </div>
+          </div>
+          <p className="text-xs mb-4" style={{ color: "#606070" }}>
+            把&ldquo;全网搜&rdquo;里搜到的第三方分享链接转存到自己的网盘账号，避免原分享链接随时失效。夸克/百度/阿里云盘/迅雷均无个人开发者官方转存API，这里对接的是社区逆向接口，账号有被网盘风控限制的风险，请自行控制转存频率。
+          </p>
+
+          {/* 网盘账号列表 */}
+          <div className="mb-4">
+            <p className="text-xs font-bold mb-2" style={{ color: "#a0a0b0" }}>网盘账号</p>
+            {panAccounts.length === 0 && <p className="text-xs" style={{ color: "#606070" }}>暂无网盘账号</p>}
+            <div className="space-y-1.5">
+              {panAccounts.map(a => (
+                <div key={a.id} className="flex items-center gap-2 text-xs p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <span className="px-1.5 py-0.5 rounded shrink-0" style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa" }}>{a.netdisk_type}</span>
+                  <span className="flex-1 truncate">{a.alias}</span>
+                  <span style={{ color: a.status === "active" ? "#4ade80" : "#f87171" }}>{a.status}</span>
+                  <span style={{ color: "#606070" }}>
+                    {a.capacity_used_gb != null ? `${a.capacity_used_gb}/${a.capacity_total_gb}GB` : "未查询配额"}
+                  </span>
+                  <button onClick={() => checkPanQuota(a.id)} className="shrink-0 px-1.5 py-0.5 rounded" style={{ color: "#60a5fa", background: "rgba(59,130,246,0.1)" }}>查配额</button>
+                  <button onClick={() => deletePanAccount(a.id)} className="shrink-0 p-1 rounded" style={{ color: "#f87171", background: "rgba(248,113,113,0.1)" }}>
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={createPanAccount} className="flex flex-wrap gap-2 mt-2">
+              <select value={panAccountForm.netdisk_type} onChange={e => setPanAccountForm(f => ({ ...f, netdisk_type: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+                <option value="quark">夸克网盘</option>
+                <option value="baidu">百度网盘</option>
+                <option value="aliyun">阿里云盘</option>
+                <option value="xunlei">迅雷网盘</option>
+              </select>
+              <input placeholder="备注名" value={panAccountForm.alias} onChange={e => setPanAccountForm(f => ({ ...f, alias: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded flex-1 min-w-[100px]" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              <input placeholder="登录后的完整 Cookie" value={panAccountForm.credential} onChange={e => setPanAccountForm(f => ({ ...f, credential: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded flex-1 min-w-[160px]" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              <button type="submit" className="text-xs px-3 py-1.5 rounded font-medium" style={{ background: "#e50914", color: "#fff" }}>添加账号</button>
+            </form>
+          </div>
+
+          {/* 提交转存 */}
+          <div className="mb-4 pt-3" style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+            <p className="text-xs font-bold mb-2" style={{ color: "#a0a0b0" }}>提交转存任务</p>
+            <form onSubmit={submitPanTransfer} className="flex flex-wrap gap-2">
+              <select value={transferForm.netdisk_type} onChange={e => setTransferForm(f => ({ ...f, netdisk_type: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }}>
+                <option value="quark">夸克网盘</option>
+                <option value="baidu">百度网盘</option>
+                <option value="aliyun">阿里云盘</option>
+                <option value="xunlei">迅雷网盘</option>
+              </select>
+              <input placeholder="标题（可选）" value={transferForm.title} onChange={e => setTransferForm(f => ({ ...f, title: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded flex-1 min-w-[100px]" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              <input placeholder="分享链接" value={transferForm.url} onChange={e => setTransferForm(f => ({ ...f, url: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded flex-1 min-w-[160px]" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              <input placeholder="提取码（可选）" value={transferForm.password} onChange={e => setTransferForm(f => ({ ...f, password: e.target.value }))}
+                className="text-xs px-2 py-1.5 rounded w-24" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid rgba(255,255,255,0.1)", color: "#f0f0f5" }} />
+              <button type="submit" disabled={panTransferRunning || !panTransferEnabled} className="text-xs px-3 py-1.5 rounded font-medium" style={{ background: "#e50914", color: "#fff", opacity: (panTransferRunning || !panTransferEnabled) ? 0.6 : 1 }}>
+                {panTransferRunning ? "提交中..." : !panTransferEnabled ? "功能已关闭" : "提交转存"}
+              </button>
+            </form>
+          </div>
+
+          {/* 转存任务列表 */}
+          <div>
+            <p className="text-xs font-bold mb-2" style={{ color: "#a0a0b0" }}>转存任务</p>
+            {panTransfers.length === 0 && <p className="text-xs" style={{ color: "#606070" }}>暂无转存任务</p>}
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {panTransfers.map(t => (
+                <div key={t.id} className="flex items-center gap-2 text-xs p-2 rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  <span className="px-1.5 py-0.5 rounded shrink-0" style={{
+                    background: t.status === "success" ? "rgba(74,222,128,0.15)" : ["failed", "risk_blocked", "quota_exceeded"].includes(t.status) ? "rgba(248,113,113,0.15)" : "rgba(251,191,36,0.15)",
+                    color: t.status === "success" ? "#4ade80" : ["failed", "risk_blocked", "quota_exceeded"].includes(t.status) ? "#f87171" : "#fbbf24",
+                  }}>
+                    {t.status}
+                  </span>
+                  <span className="flex-1 truncate" title={t.source_title || t.source_url}>{t.source_title || t.source_url}</span>
+                  {t.status === "success" && t.saved_share_url && (
+                    <a href={t.saved_share_url} target="_blank" rel="noopener noreferrer" className="shrink-0" style={{ color: "#60a5fa" }}>
+                      新链接{t.saved_share_password ? ` (${t.saved_share_password})` : ""}
+                    </a>
+                  )}
+                  {t.error_msg && <span className="shrink-0 truncate max-w-[160px]" style={{ color: "#f87171" }} title={t.error_msg}>{t.error_msg}</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* ══ A: 后台任务进度 ══ */}
         {tasks.length > 0 && (

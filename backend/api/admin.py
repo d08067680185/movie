@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
-from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download, DiskUsageSnapshot
+from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download, DiskUsageSnapshot, Section
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
@@ -104,11 +104,18 @@ async def list_logs(limit: int = 20, offset: int = 0, db: AsyncSession = Depends
     return logs
 
 
+async def _resolve_section_id_by_key(db: AsyncSession, key: Optional[str]) -> Optional[int]:
+    """未传 section 时默认落到 video 板块——兼容升级前只有影视资源的既有行为。"""
+    return (await db.execute(select(Section.id).where(Section.key == (key or "video")))).scalar()
+
+
 @router.post("/resources", response_model=dict)
 async def create_resource(data: ResourceCreate, db: AsyncSession = Depends(get_db), _=Depends(verify_admin)):
     dump = data.model_dump(exclude_none=True)
     if "category" in dump:
         dump["category"] = _CAT_NORM.get(dump["category"], dump["category"])
+    section_key = dump.pop("section", None)
+    dump["section_id"] = await _resolve_section_id_by_key(db, section_key)
     resource = Resource(**dump)
     db.add(resource)
     await db.commit()
@@ -126,13 +133,15 @@ async def update_resource(
     resource = await db.get(Resource, resource_id)
     if not resource:
         raise HTTPException(status_code=404)
-    editable = ["title", "title_en", "year", "category", "genre", "country", "synopsis", "poster_url", "rating"]
+    editable = ["title", "title_en", "year", "category", "genre", "country", "synopsis", "poster_url", "rating", "extra_data"]
     for field in editable:
         if field in data and data[field] is not None:
             val = data[field]
             if field == "category":
                 val = _CAT_NORM.get(val, val)
             setattr(resource, field, val)
+    if "section" in data and data["section"]:
+        resource.section_id = await _resolve_section_id_by_key(db, data["section"])
     await db.commit()
     return {"message": "已更新"}
 
@@ -469,6 +478,7 @@ async def batch_import(
 
     created = updated = links_added = skipped = 0
     errors = []
+    video_section_id = await _resolve_section_id_by_key(db, "video")  # 此接口只服务影视/动漫批量导入
 
     for item in items:
         try:
@@ -489,6 +499,7 @@ async def batch_import(
                     title=item.title,
                     year=item.year,
                     category=cat,
+                    section_id=video_section_id,
                     genre=item.genre,
                     country=item.country,
                     synopsis=item.synopsis,

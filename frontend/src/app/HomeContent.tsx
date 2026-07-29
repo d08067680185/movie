@@ -2,10 +2,11 @@
 import { useState, useEffect, FormEvent, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { Search, TrendingUp, Film, Star, Clock, X } from "lucide-react";
-import { getHotResources, getLatestResources, getStats, getHotSearches, ResourceCard, Stats } from "@/lib/api";
+import { getHotResources, getLatestResources, getStats, getHotSearches, getSections, ResourceCard, Stats, Section } from "@/lib/api";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { SECTIONS_FALLBACK } from "@/lib/utils";
 
 const CATEGORY_META = [
   { label: "电影", value: "movie", icon: "🎬", color: "#60a5fa", glow: "rgba(96,165,250,0.2)" },
@@ -23,6 +24,7 @@ export default function HomeContent() {
   const [loading, setLoading] = useState(true);
   const [error] = useState<string | null>(null);
   const [hotKeywords, setHotKeywords] = useState<string[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
 
   useEffect(() => {
     // 并发但独立的三个请求，单个失败不影响整体
@@ -41,6 +43,8 @@ export default function HomeContent() {
     getHotSearches().then((hs) => {
       if (hs.length > 0) setHotKeywords(hs.map((h) => h.keyword));
     });
+
+    getSections().then(setSections);
   }, []);
 
   function handleSearch(e: FormEvent) {
@@ -91,11 +95,11 @@ export default function HomeContent() {
           <div className="flex items-center justify-center gap-2 sm:gap-3 mb-3 sm:mb-4">
             <Film size={28} className="sm:w-8 sm:h-8" style={{ color: "#e50914" }} />
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black gradient-text" style={{ letterSpacing: "-0.5px" }}>
-              影视资源搜索
+              资源共享平台
             </h1>
           </div>
           <p className="mb-6 sm:mb-10 text-sm sm:text-base" style={{ color: "var(--text-secondary)" }}>
-            聚合多源影视资源，一键搜索电影、电视剧、动漫
+            聚合影视动画、软件工具、电子书、音乐、游戏等多类资源，一站搜索
           </p>
 
           {/* 搜索框 */}
@@ -112,7 +116,7 @@ export default function HomeContent() {
                 type="text"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="搜索电影、电视剧、动漫..."
+                placeholder="搜索影视、软件、电子书、音乐、游戏..."
                 className="flex-1 bg-transparent outline-none text-base sm:text-lg"
                 style={{ color: "var(--text-primary)" }}
               />
@@ -181,7 +185,7 @@ export default function HomeContent() {
           {stats && (
             <div className="flex items-center justify-center gap-4 sm:gap-10 mt-6 sm:mt-10">
               {[
-                { label: "影视资源", value: stats.total_resources.toLocaleString(), color: "#e50914" },
+                { label: "资源总数", value: stats.total_resources.toLocaleString(), color: "#e50914" },
                 { label: "下载链接", value: stats.total_links.toLocaleString(), color: "#60a5fa" },
                 { label: "数据来源", value: stats.total_sources.toString(), color: "#f472b6" },
               ].map((item) => (
@@ -200,7 +204,36 @@ export default function HomeContent() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-8">
-        {/* 分类导航 */}
+        {/* 板块导航 */}
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4 mb-8 sm:mb-12">
+          {(sections.length > 0
+            ? sections.map((s) => ({ key: s.key, name: s.name, icon: s.icon || "", resource_count: s.resource_count }))
+            : SECTIONS_FALLBACK.map((s) => ({ ...s, resource_count: 0 }))
+          ).map((s) => (
+            <button
+              key={s.key}
+              onClick={() => router.push(`/s/${s.key}`)}
+              className="cat-card flex flex-col items-center justify-center gap-1.5 p-4 sm:p-5 rounded-xl text-center"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "#22d3ee";
+                (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 20px rgba(34,211,238,0.15)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                (e.currentTarget as HTMLElement).style.boxShadow = "";
+              }}
+            >
+              <span className="text-2xl sm:text-3xl">{s.icon}</span>
+              <div className="font-semibold text-sm sm:text-base">{s.name}</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {s.resource_count.toLocaleString()} 个资源
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* 影视分类导航 */}
         {activeCategories.length > 0 && (
           <div
             className={`grid gap-3 sm:gap-4 mb-8 sm:mb-12 ${

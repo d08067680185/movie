@@ -293,6 +293,16 @@ Docker internal:
 - Tailwind 4 with `@import "tailwindcss"` at top of CSS file
 - Inline styles coexist with Tailwind for card backgrounds (intentional split)
 
+## 板块化改造：资源分享平台升级 (2026-07-29)
+
+系统从纯影视聚合搜索升级为通用资源分享平台的第一轮，范围：数据模型+板块导航骨架，**不含**用户账号/UGC提交（明确推迟到后续独立迭代）。
+
+- **新表** (`models.py`): `Section`(板块，key/name/icon/sort_order) + `Category`(板块下分类，section_id FK)。种子数据 5 板块：`video`(影视动画，沿用原有4分类)/`software`(软件工具)/`ebook`(电子书)/`music`(音乐音频)/`game`(游戏)，写在 `database.py:init_db()` 里用 `INSERT ... WHERE NOT EXISTS` 幂等种入。
+- **`Resource` 新列**：`section_id`(FK，冗余存储避免每次查询 join)、`extra_data`(JSON，板块专属元数据如电子书作者/游戏平台，替代给每个板块加专属列)、`submitted_by`+`status`(预留字段，**本轮不启用**，为未来 UGC/审核流程占位，避免以后再迁移)。存量资源在 `init_db()` 里一次性回填 `section_id = video`。
+- **后端**：`api/sections.py` 新增 `GET /api/sections`（公开，返回板块+分类+资源数）；`api/search.py` 的 `/search`、`/hot`、`/latest` 都加了 `section` 参数（`_resolve_section_id` 按 key 查 id，进程内缓存）；`api/livesearch.py`(全网搜/PanSou) 加 `section` 参数——PanSou 本身不分类，只能靠给查询词追加板块限定词做粗略加权(`SECTION_KEYWORD_HINTS`)，`video` 板块不加限定词以保持原有行为不变；缓存key也按 `section:keyword` 区分，避免不同板块的同名关键词撞缓存。`api/admin.py`/`spiders/scheduler.py` 里所有 Resource 创建点都补了 `section_id`（默认/唯一来源目前都是 `video`，因为现有admin表单和全部spider只产出影视内容）。
+- **前端**：`lib/api.ts:getSections()` 对接新接口；`Navbar.tsx`/`HomeContent.tsx`/`Footer.tsx` 从写死的4个影视分类链接改为渲染 `getSections()` 返回的5个板块（失败时用 `lib/utils.ts:SECTIONS_FALLBACK` 兜底，避免导航因单次接口失败而消失）；新增 `/s/[sectionKey]/page.tsx`——**只是一个 redirect 到 `/search?section=xxx` 的薄路由**，没有另建一套UI，复用现有 `SearchContent.tsx` 的搜索/筛选/分页基础设施；`SearchContent.tsx` 加 `section` 参数，且分类筛选chips(电影/电视剧/动漫/经典资源)只在 `!section || section === "video"` 时渲染——因为分类体系目前只有影视动画板块有。
+- **未做（有意推迟）**：软件/电子书/音乐/游戏板块目前没有专属爬虫，内容主要靠全网搜(PanSou)覆盖；管理后台还没有"新建板块/分类"的UI（板块列表目前是代码里的种子数据，不可通过admin面板增删）；用户账号/UGC提交完全没做，`Resource.submitted_by`/`status` 是占位字段。
+
 ## Recent Improvements (2026-07-03)
 
 Six admin features shipped:

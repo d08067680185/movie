@@ -65,6 +65,23 @@ export interface Stats {
   categories: Record<string, number>;
 }
 
+export interface Section {
+  id: number;
+  key: string;
+  name: string;
+  icon?: string;
+  resource_count: number;
+  categories: { id: number; name: string }[];
+}
+
+export async function getSections(): Promise<Section[]> {
+  try {
+    return await fetchApi("/api/sections", 300);
+  } catch {
+    return [];
+  }
+}
+
 async function fetchApi<T>(path: string, cacheSeconds = 60): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -86,6 +103,7 @@ export async function getResource(id: number): Promise<ResourceDetail> {
 
 export async function searchResources(params: {
   q?: string;
+  section?: string;
   category?: string;
   year?: number;
   genre?: string;
@@ -98,6 +116,7 @@ export async function searchResources(params: {
 }): Promise<SearchResult> {
   const sp = new URLSearchParams();
   if (params.q) sp.set("q", params.q);
+  if (params.section) sp.set("section", params.section);
   if (params.category) sp.set("category", params.category);
   if (params.year) sp.set("year", String(params.year));
   if (params.genre) sp.set("genre", params.genre);
@@ -110,10 +129,11 @@ export async function searchResources(params: {
   return fetchApi(`/api/search?${sp.toString()}`);
 }
 
-export async function getHotResources(category?: string, limit?: number): Promise<ResourceCard[]> {
+export async function getHotResources(category?: string, limit?: number, section?: string): Promise<ResourceCard[]> {
   const sp = new URLSearchParams();
   if (category) sp.set("category", category);
   if (limit) sp.set("limit", String(limit));
+  if (section) sp.set("section", section);
   const qs = sp.toString();
   return fetchApi(`/api/hot${qs ? `?${qs}` : ""}`);
 }
@@ -168,9 +188,9 @@ export async function getRelated(id: number): Promise<ResourceCard[]> {
   }
 }
 
-export async function getLatestResources(): Promise<ResourceCard[]> {
+export async function getLatestResources(section?: string): Promise<ResourceCard[]> {
   try {
-    return await fetchApi("/api/latest");
+    return await fetchApi(`/api/latest${section ? `?section=${section}` : ""}`);
   } catch {
     return [];
   }

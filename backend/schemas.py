@@ -102,6 +102,7 @@ class ResourceCreate(BaseModel):
     title_en: Optional[str] = None
     year: Optional[int] = None
     category: Optional[str] = None
+    section: Optional[str] = None  # 板块 key: video/software/ebook/music/game，不传默认 video（兼容旧影视资源）
     genre: Optional[str] = None
     country: Optional[str] = None
     synopsis: Optional[str] = None
@@ -109,6 +110,7 @@ class ResourceCreate(BaseModel):
     rating: Optional[float] = None
     directors: Optional[List[str]] = None
     actors: Optional[List[str]] = None
+    extra_data: Optional[dict] = None
 
 
 class LinkCreate(BaseModel):

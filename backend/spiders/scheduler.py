@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from typing import Optional
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import AsyncSessionLocal
@@ -10,6 +11,19 @@ import tasks as task_registry
 from utils import send_telegram
 
 logger = logging.getLogger(__name__)
+
+_video_section_id_cache: Optional[int] = None
+
+
+async def _get_video_section_id(db: AsyncSession) -> Optional[int]:
+    """所有现有 spider 都只产出影视/动漫内容，统一挂到 video 板块；进程内缓存一次即可。"""
+    global _video_section_id_cache
+    if _video_section_id_cache is None:
+        from models import Section
+        _video_section_id_cache = (
+            await db.execute(select(Section.id).where(Section.key == "video"))
+        ).scalar()
+    return _video_section_id_cache
 
 
 async def run_spider(source_id: int):
@@ -111,6 +125,7 @@ async def upsert_resource(db: AsyncSession, item, source_id: int) -> str:
             title=item.title,
             year=item.year,
             category=_CAT_NORM.get(category_raw, category_raw),
+            section_id=await _get_video_section_id(db),
             genre=item.genre,
             country=item.country,
             rating=item.rating,

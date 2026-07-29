@@ -15,6 +15,29 @@ ResourceTag = Table(
 )
 
 
+class Section(Base):
+    """板块：影视动画/软件工具/电子书文档/音乐音频/游戏 等顶层内容类型分组。"""
+    __tablename__ = "sections"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(50), nullable=False, unique=True, index=True)  # 英文slug: video/software/ebook/music/game
+    name = Column(String(100), nullable=False)  # 中文展示名
+    icon = Column(String(20))
+    sort_order = Column(Integer, default=0)
+
+
+class Category(Base):
+    """板块下的分类，替代原来写死在 Resource.category 里的固定枚举。"""
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    section_id = Column(Integer, ForeignKey("sections.id"), nullable=False, index=True)
+    name = Column(String(50), nullable=False)  # 中文分类值，与 Resource.category 一致
+    sort_order = Column(Integer, default=0)
+
+    section = relationship("Section")
+
+
 class Resource(Base):
     __tablename__ = "resources"
 
@@ -24,6 +47,7 @@ class Resource(Base):
     original_title = Column(String(500))
     year = Column(Integer, index=True)
     category = Column(String(50), index=True)  # movie, tv, anime, variety
+    section_id = Column(Integer, ForeignKey("sections.id"), index=True)
     genre = Column(String(200))
     country = Column(String(100))
     language = Column(String(100))
@@ -39,12 +63,16 @@ class Resource(Base):
     imdb_id = Column(String(50))
     directors = Column(JSON, default=list)
     actors = Column(JSON, default=list)
+    extra_data = Column(JSON, default=dict)  # 板块专属元数据(电子书作者/出版社，音乐艺术家/专辑，游戏平台/版本，软件开发商/系统要求 等)
+    submitted_by = Column(Integer, nullable=True)  # 预留：未来用户提交功能接入，指向 users.id，本轮不启用
+    status = Column(String(20), default="published", index=True)  # 预留：未来审核流程接入(published/pending/rejected)，本轮全部默认 published
     view_count = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     links = relationship("ResourceLink", back_populates="resource", cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=ResourceTag, back_populates="resources")
+    section = relationship("Section")
 
 
 class ResourceLink(Base):
@@ -131,6 +159,56 @@ class Download(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     completed_at = Column(DateTime(timezone=True))
     expires_at = Column(DateTime(timezone=True), index=True)
+
+
+class PanAccount(Base):
+    """用户自有的网盘账号，凭证(cookie/token)以加密形式存储，转存时解密使用。"""
+    __tablename__ = "pan_accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    netdisk_type = Column(String(20), nullable=False, index=True)  # quark, baidu, aliyun, xunlei
+    alias = Column(String(100), nullable=False)
+    credential = Column(Text, nullable=False)  # Fernet 加密后的 cookie/token blob
+    capacity_total_gb = Column(Float)
+    capacity_used_gb = Column(Float)
+    status = Column(String(20), nullable=False, default="active")  # active, risk_limited, disabled
+    last_used_at = Column(DateTime(timezone=True))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TransferTask(Base):
+    """一条"把第三方分享链接转存到自己网盘"的任务记录。"""
+    __tablename__ = "transfer_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resource_link_id = Column(Integer, ForeignKey("resource_links.id"), nullable=True, index=True)
+    pan_account_id = Column(Integer, ForeignKey("pan_accounts.id"), nullable=False, index=True)
+    netdisk_type = Column(String(20), nullable=False)
+    source_url = Column(String(2000), nullable=False)
+    source_password = Column(String(100))
+    source_title = Column(String(500))
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    # pending, running, success, failed, quota_exceeded, risk_blocked
+    saved_share_url = Column(String(2000))
+    saved_share_password = Column(String(100))
+    error_msg = Column(Text)
+    retry_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    started_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
+
+    resource_link = relationship("ResourceLink")
+    pan_account = relationship("PanAccount")
+
+
+class PanTransferSettings(Base):
+    """网盘转存功能总开关，固定单行(id=1)。DB字段而非.env——参照 Source.is_active
+    的模式，是运行时业务开关不是密钥，调度端每轮直接查库判断即可，不用管理内存缓存/重启。"""
+    __tablename__ = "pan_transfer_settings"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class DiskUsageSnapshot(Base):

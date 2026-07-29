@@ -7,7 +7,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import selectinload
 from typing import Optional
 from database import get_db
-from models import Resource, ResourceLink, Source, SearchLog
+from models import Resource, ResourceLink, Source, SearchLog, Section
 from schemas import SearchResult, ResourceCardOut, ResourceDetailOut, ResourceLinkOut, StatsOut
 from ratelimit import SlidingWindowLimiter, get_client_ip
 
@@ -60,6 +60,17 @@ def build_prefix_glob(keyword: str) -> str:
     return escaped + "*"
 
 
+_section_id_cache: dict = {}  # key -> id，板块表几乎不变，进程内缓存避免每次请求都查一次
+
+
+async def _resolve_section_id(db: AsyncSession, key: str) -> Optional[int]:
+    if key in _section_id_cache:
+        return _section_id_cache[key]
+    sid = (await db.execute(select(Section.id).where(Section.key == key))).scalar()
+    _section_id_cache[key] = sid
+    return sid
+
+
 async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
     """批量获取资源的有效链接数量"""
     if not resource_ids:
@@ -79,6 +90,7 @@ async def _fetch_link_counts(db: AsyncSession, resource_ids: list) -> dict:
 @router.get("/search", response_model=SearchResult)
 async def search(
     q: str = Query("", max_length=100, description="搜索关键词"),
+    section: Optional[str] = Query(None, max_length=20, description="板块 key: video/software/ebook/music/game"),
     category: Optional[str] = Query(None, max_length=20),
     year: Optional[int] = None,
     genre: Optional[str] = Query(None, max_length=50),
@@ -135,6 +147,11 @@ async def search(
         )
         await db.execute(ins)
         await db.commit()
+
+    if section:
+        section_id = await _resolve_section_id(db, section)
+        if section_id is not None:
+            stmt = stmt.where(Resource.section_id == section_id)
 
     if category:
         stmt = stmt.where(Resource.category == CATEGORY_MAP.get(category, category))
@@ -281,11 +298,16 @@ async def get_resource(resource_id: int, db: AsyncSession = Depends(get_db), _rl
 @router.get("/hot", response_model=list)
 async def get_hot(
     category: Optional[str] = Query(None, max_length=20),
+    section: Optional[str] = Query(None, max_length=20),
     limit: int = Query(12, ge=1, le=20),
     db: AsyncSession = Depends(get_db),
 ):
-    """获取热门资源（可按分类过滤，用于分类热榜）"""
+    """获取热门资源（可按分类/板块过滤，用于分类热榜）"""
     stmt = select(Resource)
+    if section:
+        section_id = await _resolve_section_id(db, section)
+        if section_id is not None:
+            stmt = stmt.where(Resource.section_id == section_id)
     if category:
         stmt = stmt.where(Resource.category == CATEGORY_MAP.get(category, category))
     stmt = (
@@ -346,14 +368,18 @@ async def get_stats(db: AsyncSession = Depends(get_db), response: Response = Non
 
 
 @router.get("/latest", response_model=list)
-async def get_latest(db: AsyncSession = Depends(get_db)):
-    """最新入库资源（按 id 倒序取 12 条有封面的）"""
+async def get_latest(section: Optional[str] = Query(None, max_length=20), db: AsyncSession = Depends(get_db)):
+    """最新入库资源（按 id 倒序取 12 条有封面的，可按板块过滤）"""
     stmt = (
         select(Resource)
         .where(Resource.poster_url != None)
         .order_by(Resource.id.desc())
         .limit(12)
     )
+    if section:
+        section_id = await _resolve_section_id(db, section)
+        if section_id is not None:
+            stmt = stmt.where(Resource.section_id == section_id)
     resources = (await db.execute(stmt)).scalars().all()
     resource_ids = [r.id for r in resources]
     link_counts = await _fetch_link_counts(db, resource_ids)

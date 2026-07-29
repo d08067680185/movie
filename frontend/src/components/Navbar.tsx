@@ -5,16 +5,14 @@ import { useState, useEffect, useRef, FormEvent } from "react";
 import { Search, X, Sun, Moon, Menu, Heart } from "lucide-react";
 import { getFavoritesCount } from "@/lib/favorites";
 import { getPanFavoritesCount } from "@/lib/panFavorites";
+import { getSections } from "@/lib/api";
+import { SECTIONS_FALLBACK } from "@/lib/utils";
 
 const totalFavCount = () => getFavoritesCount() + getPanFavoritesCount();
 
-const MOBILE_CATEGORIES = [
+const SECTION_UTILITY_LINKS = [
   { label: "💽 网盘搜索", val: "__pan" },
   { label: "⬇️ 视频下载", val: "__download" },
-  { label: "🎬 电影", val: "movie" },
-  { label: "📺 电视剧", val: "tv" },
-  { label: "⛩️ 动漫", val: "anime" },
-  { label: "📦 经典资源", val: "variety" },
 ];
 
 export default function Navbar() {
@@ -24,7 +22,16 @@ export default function Navbar() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [favCount, setFavCount] = useState(0);
+  const [sections, setSections] = useState(SECTIONS_FALLBACK);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    getSections().then((data) => {
+      if (data.length > 0) {
+        setSections(data.map((s) => ({ key: s.key, name: s.name, icon: s.icon || "" })));
+      }
+    });
+  }, []);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -115,7 +122,7 @@ export default function Navbar() {
           className="text-base sm:text-xl font-bold shrink-0 gradient-text"
           style={{ letterSpacing: "-0.5px" }}
         >
-          影视搜索
+          资源共享
         </Link>
 
         <form onSubmit={handleSearch} className="flex-1 min-w-0 max-w-xl">
@@ -133,7 +140,7 @@ export default function Navbar() {
               type="text"
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="搜索电影、电视剧、动漫… (按 / 快速定位)"
+              placeholder="搜索影视、软件、电子书、音乐、游戏… (按 / 快速定位)"
               className="flex-1 bg-transparent outline-none text-sm"
               style={{ color: "var(--text-primary)" }}
             />
@@ -170,21 +177,16 @@ export default function Navbar() {
           >
             视频下载
           </Link>
-          {[
-            { label: "动漫", val: "anime", color: "#f472b6" },
-            { label: "电影", val: "movie", color: "#60a5fa" },
-            { label: "电视剧", val: "tv", color: "#a78bfa" },
-            { label: "经典资源", val: "variety", color: "#fb923c" },
-          ].map(({ label, val, color }) => (
+          {sections.map(({ key, name, icon }) => (
             <Link
-              key={val}
-              href={`/search?category=${val}`}
+              key={key}
+              href={`/s/${key}`}
               className="transition-colors hidden sm:block font-medium"
               style={{ color: "var(--text-secondary)" }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = color)}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#22d3ee")}
               onMouseLeave={(e) => (e.currentTarget.style.color = "var(--text-secondary)")}
             >
-              {label}
+              {icon} {name}
             </Link>
           ))}
 
@@ -223,15 +225,26 @@ export default function Navbar() {
           className="sm:hidden absolute left-0 right-0 z-40 border-t"
           style={{ background: "var(--nav-bg)", borderColor: "var(--border)" }}
         >
-          {MOBILE_CATEGORIES.map(({ label, val }) => (
+          {SECTION_UTILITY_LINKS.map(({ label, val }) => (
             <Link
               key={val}
-              href={val === "__pan" ? "/pan" : val === "__download" ? "/download" : `/search?category=${val}`}
+              href={val === "__pan" ? "/pan" : "/download"}
               onClick={() => setMobileOpen(false)}
               className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors"
               style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
             >
               {label}
+            </Link>
+          ))}
+          {sections.map(({ key, name, icon }) => (
+            <Link
+              key={key}
+              href={`/s/${key}`}
+              onClick={() => setMobileOpen(false)}
+              className="flex items-center gap-3 px-5 py-3.5 text-sm font-medium transition-colors"
+              style={{ color: "var(--text-secondary)", borderBottom: "1px solid var(--border)" }}
+            >
+              {icon} {name}
             </Link>
           ))}
         </div>

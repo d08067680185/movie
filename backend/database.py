@@ -16,7 +16,10 @@ async def get_db():
 
 
 async def init_db():
-    from models import Resource, Source, Tag, ResourceTag, SpiderLog, SearchLog, Download, DiskUsageSnapshot  # noqa
+    from models import (  # noqa
+        Resource, Source, Tag, ResourceTag, SpiderLog, SearchLog, Download, DiskUsageSnapshot,
+        PanAccount, TransferTask, PanTransferSettings, Section, Category,
+    )
     from sqlalchemy import text
     async with engine.begin() as conn:
         # WAL 模式：读写可并发进行，大幅降低多写入者场景下的锁冲突/损坏概率
@@ -51,6 +54,47 @@ async def init_db():
         if "poster_checked_at" not in res_col_names:
             await conn.execute(text("ALTER TABLE resources ADD COLUMN poster_checked_at DATETIME"))
 
+        # 旧库补字段：板块化改造(资源分享平台升级) —— section_id/extra_data/submitted_by/status
+        if "section_id" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN section_id INTEGER"))
+        if "extra_data" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN extra_data JSON"))
+        if "submitted_by" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN submitted_by INTEGER"))
+        if "status" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN status VARCHAR(20) DEFAULT 'published'"))
+            await conn.execute(text("UPDATE resources SET status = 'published' WHERE status IS NULL"))
+
+        # 板块种子数据：首次建表时插入5个板块 + 影视动画下沿用原有4个分类值
+        section_seed = [
+            ("video", "影视动画", "🎬", 0),
+            ("software", "软件工具", "💻", 1),
+            ("ebook", "电子书", "📚", 2),
+            ("music", "音乐音频", "🎵", 3),
+            ("game", "游戏", "🎮", 4),
+        ]
+        for key, name, icon, order in section_seed:
+            await conn.execute(text(
+                "INSERT INTO sections (key, name, icon, sort_order) "
+                "SELECT :key, :name, :icon, :order WHERE NOT EXISTS "
+                "(SELECT 1 FROM sections WHERE key = :key)"
+            ), {"key": key, "name": name, "icon": icon, "order": order})
+
+        video_section_id = (await conn.execute(
+            text("SELECT id FROM sections WHERE key = 'video'")
+        )).scalar()
+        for name, order in [("电影", 0), ("电视剧", 1), ("动漫", 2), ("经典资源", 3)]:
+            await conn.execute(text(
+                "INSERT INTO categories (section_id, name, sort_order) "
+                "SELECT :sid, :name, :order WHERE NOT EXISTS "
+                "(SELECT 1 FROM categories WHERE section_id = :sid AND name = :name)"
+            ), {"sid": video_section_id, "name": name, "order": order})
+
+        # 存量资源全部属于影视动画板块（升级前系统只做影视，section_id 尚未回填的都归到 video）
+        await conn.execute(text(
+            "UPDATE resources SET section_id = :sid WHERE section_id IS NULL"
+        ), {"sid": video_section_id})
+
         for sql in [
             "CREATE INDEX IF NOT EXISTS idx_rl_last_checked ON resource_links (last_checked_at)",
             "CREATE INDEX IF NOT EXISTS idx_rl_resource_id ON resource_links (resource_id)",
@@ -65,11 +109,22 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_r_title_lower ON resources (LOWER(title))",
             "CREATE INDEX IF NOT EXISTS idx_r_title_en_lower ON resources (LOWER(title_en))",
             "CREATE INDEX IF NOT EXISTS idx_r_original_title_lower ON resources (LOWER(original_title))",
+            "CREATE INDEX IF NOT EXISTS idx_r_section_id ON resources (section_id)",
+            "CREATE INDEX IF NOT EXISTS idx_categories_section ON categories (section_id)",
+            "CREATE INDEX IF NOT EXISTS idx_pa_netdisk_type ON pan_accounts (netdisk_type)",
+            "CREATE INDEX IF NOT EXISTS idx_tt_status ON transfer_tasks (status)",
+            "CREATE INDEX IF NOT EXISTS idx_tt_pan_account ON transfer_tasks (pan_account_id)",
         ]:
             await conn.execute(text(sql))
         # 统一历史分类值
         await conn.execute(text(
             "UPDATE resources SET category = '经典资源' WHERE category IN ('综艺', '资源')"
+        ))
+
+        # 网盘转存总开关：固定单行(id=1)，默认开启保持现有行为不变
+        await conn.execute(text(
+            "INSERT INTO pan_transfer_settings (id, enabled) "
+            "SELECT 1, 1 WHERE NOT EXISTS (SELECT 1 FROM pan_transfer_settings WHERE id = 1)"
         ))
 
         # FTS5(trigram) 全文索引：加速标题/演职员/简介关键词搜索，避免全表 ilike 扫描
