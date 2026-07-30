@@ -86,6 +86,23 @@ def _dir_size_bytes(path: str) -> int:
     return total
 
 
+def _cleanup_task_files(download_id: int):
+    """下载失败/超时后，yt-dlp 可能已经在 DOWNLOAD_DIR 里落下部分文件
+    (视频/音频分离流、.part 分片、合并失败的残留)——这些不会被
+    cleanup_expired_downloads 的"complete且过期"逻辑覆盖到，需要在
+    任务判定为 error 的当下就地清掉，按 outtmpl 里的 `{task_id}_` 前缀匹配。"""
+    prefix = f"{download_id}_"
+    try:
+        for entry in os.scandir(settings.DOWNLOAD_DIR):
+            if entry.is_file() and entry.name.startswith(prefix):
+                try:
+                    os.remove(entry.path)
+                except OSError:
+                    logger.warning("清理失败任务残留文件失败 id=%s path=%s", download_id, entry.path)
+    except FileNotFoundError:
+        pass
+
+
 async def _run_download_task(download_id: int, url: str):
     async with AsyncSessionLocal() as db:
         row = await db.get(Download, download_id)
@@ -106,6 +123,7 @@ async def _run_download_task(download_id: int, url: str):
                 row.status = "error"
                 row.error_message = f"该链接暂不支持下载，或该网站/平台不受支持：{e.message[:300]}"
                 await db.commit()
+        _cleanup_task_files(download_id)
         return
     except asyncio.TimeoutError:
         logger.warning("下载任务超过 %.0f 秒未完成，标记失败 download_id=%s", _DOWNLOAD_WALL_CLOCK_TIMEOUT, download_id)
@@ -115,6 +133,11 @@ async def _run_download_task(download_id: int, url: str):
                 row.status = "error"
                 row.error_message = "下载耗时过长（超过30分钟），已自动终止"
                 await db.commit()
+        # 注意：超时只是让等待方不再干等，底层 yt-dlp 线程可能仍在跑（无法强制杀死）。
+        # 这里立刻删除文件存在与其竞争的风险（线程之后还可能往同名路径写入），
+        # 但两害相权：残留文件长期占盘是确定的坏事，线程仍在写入是小概率的暂时状态，
+        # 后续该线程自己再写入时会因目录不存在的分片报错退出，不会造成数据损坏。
+        _cleanup_task_files(download_id)
         return
     except Exception as e:
         logger.exception("下载任务异常 download_id=%s", download_id)
@@ -124,6 +147,7 @@ async def _run_download_task(download_id: int, url: str):
                 row.status = "error"
                 row.error_message = f"下载失败：{e}"[:500]
                 await db.commit()
+        _cleanup_task_files(download_id)
         return
 
     async with AsyncSessionLocal() as db:
@@ -234,6 +258,7 @@ async def cleanup_expired_downloads():
         for row in stalled:
             row.status = "error"
             row.error_message = "下载超时（超过6小时未完成），已自动终止"
+            _cleanup_task_files(row.id)
 
         if expired or stalled:
             await db.commit()
