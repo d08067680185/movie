@@ -1,10 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Globe, RefreshCw } from "lucide-react";
+import { Search, Globe, RefreshCw, Copy, Check } from "lucide-react";
 import { liveSearch, getHotResources, LiveSearchResult, LiveSearchItem, ResourceCard } from "@/lib/api";
 import { CLOUD_TYPE_LABELS } from "@/lib/utils";
 import PanLinkModal from "./PanLinkModal";
+
+// 聚合视图的伪类型值：合并所有网盘类型按时间/默认顺序展示，而不是必须先选一个类型
+const ALL_TYPE = "__all__";
+
+type TaggedItem = LiveSearchItem & { _cloudType: string };
 
 const RANKING_CATEGORIES = [
   { label: "电影", value: "movie" },
@@ -86,10 +91,19 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
   const [result, setResult] = useState<LiveSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeType, setActiveType] = useState<string>("");
+  const [activeType, setActiveType] = useState<string>(ALL_TYPE);
   const [modalItem, setModalItem] = useState<{ item: LiveSearchItem; type: string } | null>(null);
   const [sortBy, setSortBy] = useState<"default" | "newest">("default");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  function handleCopy(item: LiveSearchItem, key: string) {
+    const text = item.password ? `${item.url} 提取码: ${item.password}` : item.url;
+    navigator.clipboard?.writeText(text).then(() => {
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1500);
+    });
+  }
 
   function doSearch(refresh = false) {
     if (!q.trim()) {
@@ -99,7 +113,7 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
     let cancelled = false;
     setLoading(true);
     setError(null);
-    if (!refresh) setActiveType("");
+    if (!refresh) setActiveType(ALL_TYPE);
     setVisibleCount(PAGE_SIZE);
     liveSearch(q, refresh)
       .then((r) => { if (!cancelled) setResult(r); })
@@ -124,8 +138,10 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
   }
 
   const types = result?.types || [];
-  const shownType = activeType || (types[0]?.type ?? "");
-  const allItems = result?.by_type[shownType] || [];
+  const isAll = activeType === ALL_TYPE;
+  const allItems: TaggedItem[] = isAll
+    ? types.flatMap((t) => (result?.by_type[t.type] || []).map((it) => ({ ...it, _cloudType: t.type })))
+    : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }));
   const sortedItems = sortBy === "newest"
     ? [...allItems].sort((a, b) => (b.datetime || "").localeCompare(a.datetime || ""))
     : allItems;
@@ -149,9 +165,24 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
               {loading ? "搜索中…" : "暂无来源"}
             </span>
           )}
+          {types.length > 0 && (
+            <button
+              onClick={() => { setActiveType(ALL_TYPE); setVisibleCount(PAGE_SIZE); }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm whitespace-nowrap transition-all text-left"
+              style={isAll
+                ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", fontWeight: 600 }
+                : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+            >
+              <span>🗂️</span>
+              全部
+              <span className="ml-auto text-xs" style={{ color: isAll ? "#e50914" : "var(--text-muted)" }}>
+                {result?.total ?? 0}
+              </span>
+            </button>
+          )}
           {types.map((t) => {
             const meta = CLOUD_TYPE_LABELS[t.type] || { label: t.type, icon: "🔗" };
-            const active = shownType === t.type;
+            const active = activeType === t.type;
             return (
               <button
                 key={t.type}
@@ -219,34 +250,51 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
               </div>
             </div>
             <ul>
-              {items.map((item, i) => (
-                <li
-                  key={`${item.url}-${i}`}
-                  className="py-4 flex flex-col sm:flex-row sm:items-center gap-3"
-                  style={{ borderBottom: "1px dashed var(--border)" }}
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium leading-relaxed break-all" style={{ color: "var(--text-primary)" }}>
-                      {item.title}
-                    </p>
-                    <p className="text-xs mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-0.5" style={{ color: "var(--text-muted)" }}>
-                      <span className="flex items-center gap-1">
-                        <Globe size={11} />
-                        来源: {(CLOUD_TYPE_LABELS[shownType] || { label: shownType }).label}
-                      </span>
-                      {item.password && <span>提取码: {item.password}</span>}
-                      {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => setModalItem({ item, type: shownType })}
-                    className="shrink-0 self-end sm:self-center px-5 py-2 rounded-lg text-sm font-medium transition-all"
-                    style={{ background: "linear-gradient(135deg, #e50914 0%, #c40812 100%)", color: "#fff" }}
+              {items.map((item, i) => {
+                const key = `${item.url}-${i}`;
+                const copied = copiedKey === key;
+                return (
+                  <li
+                    key={key}
+                    className="py-4 flex flex-col sm:flex-row sm:items-center gap-3"
+                    style={{ borderBottom: "1px dashed var(--border)" }}
                   >
-                    获取资源
-                  </button>
-                </li>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-relaxed break-all" style={{ color: "var(--text-primary)" }}>
+                        {item.title}
+                      </p>
+                      <p className="text-xs mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-0.5" style={{ color: "var(--text-muted)" }}>
+                        <span className="flex items-center gap-1">
+                          <Globe size={11} />
+                          来源: {(CLOUD_TYPE_LABELS[item._cloudType] || { label: item._cloudType }).label}
+                        </span>
+                        {item.password && <span>提取码: {item.password}</span>}
+                        {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <button
+                        onClick={() => handleCopy(item, key)}
+                        title="复制链接和提取码"
+                        className="flex items-center gap-1 px-3 py-2 rounded-lg text-sm transition-all"
+                        style={copied
+                          ? { background: "rgba(34,197,94,0.12)", color: "#22c55e", border: "1px solid rgba(34,197,94,0.3)" }
+                          : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                      >
+                        {copied ? <Check size={13} /> : <Copy size={13} />}
+                        {copied ? "已复制" : "复制"}
+                      </button>
+                      <button
+                        onClick={() => setModalItem({ item, type: item._cloudType })}
+                        className="px-5 py-2 rounded-lg text-sm font-medium transition-all"
+                        style={{ background: "linear-gradient(135deg, #e50914 0%, #c40812 100%)", color: "#fff" }}
+                      >
+                        获取资源
+                      </button>
+                    </div>
+                  </li>
+                );
+              })}
             </ul>
             {remaining > 0 && (
               <div className="flex justify-center py-4">

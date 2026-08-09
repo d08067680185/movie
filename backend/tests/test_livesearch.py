@@ -113,3 +113,36 @@ async def test_livesearch_cache_key_normalized_across_case_and_whitespace(monkey
     assert r2.status_code == 200
     assert call_count["n"] == 1  # 第二次应该命中缓存，不应该再调用 _fetch_pansou
     ls._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_livesearch_concurrent_same_keyword_coalesces_upstream_call(monkeypatch, db_session):
+    """并发请求同一个未缓存关键词时，应该合并成一次真正的 PanSou 上游调用（防雪崩）。"""
+    import asyncio as _asyncio
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    ls._inflight.clear()
+    ls._stats["coalesced"] = 0
+    call_count = {"n": 0}
+
+    async def fake_fetch(keyword, refresh):
+        call_count["n"] += 1
+        await _asyncio.sleep(0.05)
+        return {"total": 0, "by_type": {}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        responses = await _asyncio.gather(*[
+            client.get("/api/livesearch", params={"q": "并发合并测试关键词"})
+            for _ in range(5)
+        ])
+
+    assert all(r.status_code == 200 for r in responses)
+    assert call_count["n"] == 1  # 只有一次真正打到上游
+    assert ls._stats["coalesced"] == 4  # 其余 4 个请求复用了同一个结果
+    assert ls._inflight == {}  # 用完即清理，不常驻
+    ls._cache.clear()

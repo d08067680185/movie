@@ -45,7 +45,38 @@ _CACHE_MAX = 200
 _lock = asyncio.Lock()
 
 # 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
-_stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0}
+_stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0, "coalesced": 0}
+
+# 同一 cache_key 缓存未命中时的并发请求合并：多个用户同时搜同一个新关键词，
+# 只有第一个("leader")真正打 PanSou 上游，其余请求等待并复用同一个结果，
+# 避免每个并发请求都各自触发一次慢上游调用（雪崩）。用完即删，不会常驻增长。
+_inflight: dict = {}       # cache_key -> asyncio.Future
+
+
+async def _fetch_coalesced(cache_key: str, upstream_keyword: str, refresh: bool) -> dict:
+    async with _lock:
+        fut = _inflight.get(cache_key)
+        is_leader = fut is None
+        if is_leader:
+            fut = asyncio.get_event_loop().create_future()
+            _inflight[cache_key] = fut
+
+    if not is_leader:
+        _stats["coalesced"] += 1
+        return await fut
+
+    try:
+        payload = await _fetch_pansou(upstream_keyword, refresh)
+    except BaseException as e:  # noqa: BLE001 - propagate to all waiters, then re-raise here
+        fut.set_exception(e)
+        fut.exception()  # mark retrieved so asyncio doesn't log "exception never retrieved" if no one else awaited
+        async with _lock:
+            _inflight.pop(cache_key, None)
+        raise
+    fut.set_result(payload)
+    async with _lock:
+        _inflight.pop(cache_key, None)
+    return payload
 
 # 简单熔断：连续失败达到阈值后，短时间内直接快速失败，避免请求堆积等 PanSou 卡死
 _CIRCUIT_FAIL_THRESHOLD = 3
@@ -145,6 +176,7 @@ async def livesearch_health():
     return {
         "pansou": pansou,
         "cache_entries": len(_cache),
+        "inflight_requests": len(_inflight),
         "circuit_open": _circuit_is_open(),
         **_stats,
     }
@@ -181,7 +213,7 @@ async def livesearch(
             _stats["upstream_errors"] += 1
             raise HTTPException(status_code=503, detail="全网搜服务暂时不可用，请稍后重试")
         try:
-            payload = await _fetch_pansou(upstream_keyword, refresh)
+            payload = await _fetch_coalesced(cache_key, upstream_keyword, refresh)
             _circuit_record_success()
         except httpx.HTTPError as e:
             _stats["upstream_errors"] += 1
