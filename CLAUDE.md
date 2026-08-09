@@ -226,6 +226,13 @@ Docker internal:
 - Public read endpoints `/api/search` and `/api/resource/{id}` are now rate-limited (60 req/60s per IP, `api/search.py:rate_limit_public_read`) — previously completely open to scraping/DoS. Other public endpoints (`/hot`, `/latest`, `/stats`, `/hot-searches`, `/related`) are left unlimited since they're cheap and/or already cached.
 - Admin login (`auth.py`) and download creation (`api/downloads.py`) rate limiters were already in place but were previously using the un-fixed `request.client.host` — retroactively fixed to use `get_client_ip()` too.
 
+**全网搜(PanSou)扩大监听范围 (2026-08-10)**:
+- 排查发现 `docker-compose.yml` 里 `pansou` 服务此前**只设了 `TZ` 一个环境变量**，`CHANNELS`/`ENABLED_PLUGINS` 完全没配置——表面像用官方最小默认值(README写的默认是1个频道/0插件)，但 `docker exec movie-pansou printenv` + `GET /api/health` 一查，实际是**镜像自己把较丰富的列表烘焙成了内置默认值**(101频道/61插件)。这个配置完全隐式、不在仓库里，镜像升级时可能被作者悄悄改变而无人发觉。
+- 把线上实际生效值(ground truth，直接从容器里量出来，没有手打)+ 官方最新 README 示例比对出的增量，显式写死到 `docker-compose.yml` 的 `pansou.environment`：**118 个 TG 频道 + 78 个插件**(即101/61的基础上各加17个)。内存限制 `384M→512M`(扩容前实测只用13%内存，给足安全边际)。
+- 部署时用 `docker compose pull pansou` 拉了一次新镜像(而不只是 `up -d` 复用旧镜像层)——新增的17个插件名如果编译在旧镜像里不存在只会是空操作；拉新镜像后从 `pansou` 容器日志里实测看到 `yulinshufa`、`thepiratebay` 等新插件真的在跑，证明镜像确实带了这些插件实现。
+- **已知局限**：PanSou 的频道列表严重偏影视/网盘分享向，音乐类关键词("钢琴谱")测试后 `total=0`——板块化改造(`Section`)里"software/ebook/music/game 板块内容主要靠全网搜覆盖"这个假设，对 music/game 板块目前覆盖仍然薄弱，需要专门找对应类型的TG频道才能改善，这次没做（不在这轮范围内）。
+- **重要提醒**：以后升级 `pansou` 镜像前，先去 [fish2018/pansou](https://github.com/fish2018/pansou) 官方 README 看 CHANNELS/ENABLED_PLUGINS 示例有没有新增条目，因为现在配置是显式写死的，不会随镜像更新自动获得新频道/插件（这是选择显式配置的代价，但换来的是可控、可追溯）。
+
 **全网搜(PanSou)并发合并 + 聚合视图 (2026-08-09)**:
 - `api/livesearch.py:_fetch_coalesced` — 缓存未命中时，同一 `cache_key`（`section:normalize_keyword(q)`）的并发请求只有第一个("leader")真正打 PanSou 上游，其余请求通过共享的 `asyncio.Future` 复用同一结果，避免同一新关键词被多人同时搜时产生上游请求雪崩。用完即从 `_inflight` dict 清理，不会像旧版 `SlidingWindowLimiter` 那样常驻增长。`/api/livesearch/health` 新增 `inflight_requests`/`coalesced` 两个统计字段。
 - 前端 `LiveSearchResults.tsx` 新增「全部」聚合筛选项（`ALL_TYPE` 伪类型，默认选中）——此前必须先选一个网盘类型（夸克/百度等）才能看到列表；现在默认合并展示所有类型的结果（按 `types` 数组顺序即 `CLOUD_TYPES` 优先级拼接，`newest` 排序仍可用），每条结果标注自己的来源类型（`item._cloudType`，取代原来固定用 `shownType` 的写法）。同时给每条结果加了"复制"按钮（`navigator.clipboard`，复制 `url` + 提取码），不用为了复制链接而打开 `PanLinkModal`。
