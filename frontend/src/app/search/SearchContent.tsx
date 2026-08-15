@@ -5,7 +5,7 @@ import { Search, ChevronLeft, ChevronRight, X, SlidersHorizontal, Share2 } from 
 import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
 import Footer from "@/components/Footer";
-import { searchResources, getSections, SearchResult } from "@/lib/api";
+import { searchResources, getSections, getHotSearches, SearchResult } from "@/lib/api";
 import { SECTIONS_FALLBACK } from "@/lib/utils";
 import LiveSearchResults from "@/components/LiveSearchResults";
 
@@ -71,6 +71,7 @@ export default function SearchContent() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [sections, setSections] = useState(SECTIONS_FALLBACK);
+  const [hotWords, setHotWords] = useState<{ keyword: string; count: number }[]>([]);
 
   useEffect(() => {
     getSections().then((data) => {
@@ -78,6 +79,10 @@ export default function SearchContent() {
         setSections(data.map((s) => ({ key: s.key, name: s.name, icon: s.icon || "" })));
       }
     });
+  }, []);
+
+  useEffect(() => {
+    getHotSearches().then(setHotWords);
   }, []);
 
   // 分类(电影/电视剧/动漫/经典资源)只属于影视动画板块，其它板块暂无子分类体系，
@@ -289,7 +294,14 @@ export default function SearchContent() {
         )}
 
         {mode === "live" ? (
-          <LiveSearchResults q={q} />
+          <LiveSearchResults
+            q={q}
+            hotWords={hotWords}
+            onPickHotWord={(kw) => updateSearch({ q: kw })}
+            sections={sections}
+            section={section}
+            onSectionChange={(s) => updateSearch({ section: s })}
+          />
         ) : (
         <>
         {/* 分类 + 排序 + 筛选切换 */}

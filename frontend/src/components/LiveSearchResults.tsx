@@ -81,13 +81,34 @@ function formatDate(dt?: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// "最新"排序用真正的时间数值比较，而不是对 datetime 原始字符串做字典序比较
+// （字典序在占位日期 0001-01-01 面前会把假日期随机插到列表中间）；无效/占位
+// 日期统一排到最后
+function sortKey(dt?: string): number {
+  if (!dt) return -Infinity;
+  const t = new Date(dt).getTime();
+  if (isNaN(t) || new Date(dt).getFullYear() < 1990) return -Infinity;
+  return t;
+}
+
 interface Props {
   q: string;
   hotWords?: { keyword: string; count: number }[];
   onPickHotWord?: (keyword: string) => void;
+  // 只有调用方传了这两个 prop 才渲染板块筛选行；/pan 独立页没有板块概念，不传即可
+  sections?: { key: string; name: string; icon: string }[];
+  section?: string;
+  onSectionChange?: (section: string) => void;
 }
 
-export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: Props) {
+export default function LiveSearchResults({
+  q,
+  hotWords = [],
+  onPickHotWord,
+  sections,
+  section = "",
+  onSectionChange,
+}: Props) {
   const [result, setResult] = useState<LiveSearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +136,7 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
     setError(null);
     if (!refresh) setActiveType(ALL_TYPE);
     setVisibleCount(PAGE_SIZE);
-    liveSearch(q, refresh)
+    liveSearch(q, refresh, section || undefined)
       .then((r) => { if (!cancelled) setResult(r); })
       .catch(() => { if (!cancelled) setError("全网搜服务暂时不可用，请稍后重试"); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -125,7 +146,7 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     return doSearch(false);
-  }, [q]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, section]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!q.trim()) {
     return (
@@ -143,7 +164,7 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
     ? types.flatMap((t) => (result?.by_type[t.type] || []).map((it) => ({ ...it, _cloudType: t.type })))
     : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }));
   const sortedItems = sortBy === "newest"
-    ? [...allItems].sort((a, b) => (b.datetime || "").localeCompare(a.datetime || ""))
+    ? [...allItems].sort((a, b) => sortKey(b.datetime) - sortKey(a.datetime))
     : allItems;
   const items = sortedItems.slice(0, visibleCount);
   const remaining = sortedItems.length - items.length;
@@ -208,6 +229,26 @@ export default function LiveSearchResults({ q, hotWords = [], onPickHotWord }: P
         className="rounded-xl px-4 sm:px-6 py-4 min-h-[300px]"
         style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
       >
+        {sections && sections.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 pb-3 mb-3" style={{ borderBottom: "1px dashed var(--border)" }}>
+            <span className="text-xs shrink-0" style={{ color: "var(--text-muted)" }}>板块:</span>
+            {sections.map((s) => {
+              const active = section === s.key || (!section && s.key === "video");
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => onSectionChange?.(s.key)}
+                  className="px-2.5 py-1 rounded-full text-xs transition-all"
+                  style={active
+                    ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)" }
+                    : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                >
+                  {s.icon} {s.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 text-center" style={{ color: "var(--text-muted)" }}>
             <RefreshCw size={32} className="mb-4 animate-spin opacity-50" />

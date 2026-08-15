@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,6 +19,8 @@ from database import get_db
 from models import SearchLog
 from utils import send_telegram
 from textnorm import normalize_keyword
+from dedup import clean_key
+from ratelimit import SlidingWindowLimiter, get_client_ip
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,25 @@ _stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0, "coalesced": 0}
 # 只有第一个("leader")真正打 PanSou 上游，其余请求等待并复用同一个结果，
 # 避免每个并发请求都各自触发一次慢上游调用（雪崩）。用完即删，不会常驻增长。
 _inflight: dict = {}       # cache_key -> asyncio.Future
+
+# pansou sidecar 只有 1.0 cpu（docker-compose.yml），单次搜索内部本身要并发查
+# 上百个TG频道/插件源，已经比较吃资源；这里限制"不同关键词"同时打到上游的
+# 并发数（相同关键词已被 _fetch_coalesced 收敛成一次调用，不受此信号量影响），
+# 避免多人同时搜不同新词把 sidecar 拖到假死。4 是保守起始值，后续可结合
+# /api/livesearch/health 的 inflight_requests/requests 观察调优
+_PANSOU_CONCURRENCY = asyncio.Semaphore(4)
+
+# /api/livesearch 缓存未命中时单次调用成本远高于 /api/search（10秒级上游调用+
+# 给下游 pansou 施压），阈值比 /api/search 的 60/60s 更紧
+_livesearch_limiter = SlidingWindowLimiter(
+    max_attempts=30, window_seconds=60, message="全网搜请求过于频繁，请稍后再试"
+)
+
+
+def rate_limit_livesearch(request: Request):
+    ip = get_client_ip(request)
+    _livesearch_limiter.check(ip)
+    _livesearch_limiter.record(ip)
 
 
 async def _fetch_coalesced(cache_key: str, upstream_keyword: str, refresh: bool) -> dict:
@@ -86,11 +107,14 @@ _circuit_open_until = 0.0
 
 
 def _clean_url(raw: str) -> Optional[str]:
-    """pansou 的 url 字段偶尔混入换行+标签文字，只保留第一个 URL 本体"""
+    """pansou 的 url 字段偶尔混入换行+标签文字，只保留第一个 URL 本体；
+    末尾 # 是已知的 pansou 噪音（跟 password 字段同源），rstrip 只删字符串
+    真正末尾的字符，quark/aliyun 链接里 .../s/x#/list/share 这种中间片段
+    路由不受影响，不存在误伤风险"""
     m = _URL_RE.search(raw or "")
     if not m:
         return None
-    return m.group(0).rstrip(").,;\"'>】」）")
+    return m.group(0).rstrip(").,;\"'>】」）#")
 
 
 def _normalize(data: dict) -> dict:
@@ -99,18 +123,28 @@ def _normalize(data: dict) -> dict:
     total = 0
     for ctype in CLOUD_TYPES:
         seen = set()
+        seen_titles = set()
         items = []
         for it in merged.get(ctype) or []:
             url = _clean_url(it.get("url", ""))
             if not url or url in seen:
                 continue
-            seen.add(url)
             # 插件源的 note 可能带 <span> 高亮标签，先去 HTML 再压空白
             note = re.sub(r"<[^>]+>", "", it.get("note") or "")
             note = re.sub(r"\s+", " ", note).strip()
+            title = note or url
+            # 同一资源被不同 TG 频道转发会产生不同 URL 但标题几乎一样，
+            # 用查重脚本同款的标题归一化逻辑在同一网盘类型内额外去重
+            # （不做跨类型去重：不同类型的URL域名本身就不同，不会重复）
+            title_key = clean_key(title)
+            if title_key and title_key in seen_titles:
+                continue
+            seen.add(url)
+            if title_key:
+                seen_titles.add(title_key)
             password = (it.get("password") or "").strip().rstrip("#")
             items.append({
-                "title": note or url,
+                "title": title,
                 "url": url,
                 "password": password,
                 "datetime": it.get("datetime"),
@@ -125,13 +159,14 @@ def _normalize(data: dict) -> dict:
 
 
 async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
-    params = {"kw": keyword, "res": "merge"}
-    if refresh:
-        params["refresh"] = "true"
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(f"{settings.PANSOU_URL}/api/search", params=params)
-        resp.raise_for_status()
-        body = resp.json()
+    async with _PANSOU_CONCURRENCY:
+        params = {"kw": keyword, "res": "merge"}
+        if refresh:
+            params["refresh"] = "true"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{settings.PANSOU_URL}/api/search", params=params)
+            resp.raise_for_status()
+            body = resp.json()
     if body.get("code") not in (0, None):
         raise HTTPException(status_code=502, detail=f"pansou error: {body.get('message')}")
     return _normalize(body.get("data") or body)
@@ -189,6 +224,7 @@ async def livesearch(
     section: Optional[str] = Query(None, max_length=20, description="板块 key，非video时会给查询词追加板块限定词做粗略加权"),
     refresh: bool = Query(False, description="绕过缓存强制刷新"),
     db: AsyncSession = Depends(get_db),
+    _rl=Depends(rate_limit_livesearch),
 ):
     keyword = q.strip()
     if not keyword:

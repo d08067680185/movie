@@ -1,8 +1,13 @@
 import time
+import uuid
 import pytest
 import httpx
 
 from api import livesearch as ls
+
+
+def _unique_ip() -> str:
+    return f"198.51.100.{uuid.uuid4().hex[:8]}"
 
 
 def test_clean_url_extracts_first_url_and_strips_trailing_punctuation():
@@ -10,14 +15,23 @@ def test_clean_url_extracts_first_url_and_strips_trailing_punctuation():
     assert ls._clean_url("没有链接") is None
 
 
-def test_normalize_strips_trailing_hash_from_password_only():
-    # 尾部 # 只在 password 字段清理（提取码尾部#是已知 pansou 噪音），url 本身不做这个假设
+def test_normalize_strips_trailing_hash_from_password_and_bare_trailing_hash_url():
+    # 尾部 # 是已知 pansou 噪音，password/url 字段都要清理；rstrip 只删真正
+    # 末尾字符，url 中间的 #/list/share 路由片段不受影响（下一条用例锁定）
     raw = {"merged_by_type": {"quark": [
         {"url": "https://pan.quark.cn/s/x#", "note": "标题", "password": "abcd#"},
     ]}}
     item = ls._normalize(raw)["by_type"]["quark"][0]
-    assert item["url"] == "https://pan.quark.cn/s/x#"
+    assert item["url"] == "https://pan.quark.cn/s/x"
     assert item["password"] == "abcd"
+
+
+def test_normalize_keeps_non_trailing_hash_in_url():
+    raw = {"merged_by_type": {"quark": [
+        {"url": "https://pan.quark.cn/s/x#/list/share", "note": "标题"},
+    ]}}
+    item = ls._normalize(raw)["by_type"]["quark"][0]
+    assert item["url"] == "https://pan.quark.cn/s/x#/list/share"
 
 
 def test_normalize_dedupes_and_strips_html_tags():
@@ -37,6 +51,27 @@ def test_normalize_dedupes_and_strips_html_tags():
     assert item["title"] == "高亮标题"
     assert item["password"] == "abcd"
     assert "unknown_type" not in result["by_type"]
+
+
+def test_normalize_dedupes_near_identical_titles_within_same_cloud_type():
+    """同一资源被不同 TG 频道转发会产生不同 URL 但标题几乎一样（画质/版本标签
+    不同），同一网盘类型下应该只保留一条；不同类型即便标题相同也各自保留
+    （不做跨类型去重，因为不同类型URL域名不同本来就不会重复）。"""
+    raw = {
+        "merged_by_type": {
+            "quark": [
+                {"url": "https://pan.quark.cn/s/a1", "note": "复仇者联盟4K高清"},
+                {"url": "https://pan.quark.cn/s/a2", "note": "复仇者联盟 (2019)"},
+            ],
+            "baidu": [
+                {"url": "https://pan.baidu.com/s/b1", "note": "复仇者联盟4K高清"},
+            ],
+        }
+    }
+    result = ls._normalize(raw)
+    assert len(result["by_type"]["quark"]) == 1
+    assert result["by_type"]["quark"][0]["url"] == "https://pan.quark.cn/s/a1"
+    assert len(result["by_type"]["baidu"]) == 1
 
 
 @pytest.fixture(autouse=True)
@@ -105,9 +140,10 @@ async def test_livesearch_cache_key_normalized_across_case_and_whitespace(monkey
     monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
 
     transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r1 = await client.get("/api/livesearch", params={"q": "Iron Man"})
-        r2 = await client.get("/api/livesearch", params={"q": "iron  man"})
+        r1 = await client.get("/api/livesearch", params={"q": "Iron Man"}, headers=headers)
+        r2 = await client.get("/api/livesearch", params={"q": "iron  man"}, headers=headers)
 
     assert r1.status_code == 200
     assert r2.status_code == 200
@@ -135,9 +171,10 @@ async def test_livesearch_concurrent_same_keyword_coalesces_upstream_call(monkey
     monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
 
     transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         responses = await _asyncio.gather(*[
-            client.get("/api/livesearch", params={"q": "并发合并测试关键词"})
+            client.get("/api/livesearch", params={"q": "并发合并测试关键词"}, headers=headers)
             for _ in range(5)
         ])
 
@@ -145,4 +182,70 @@ async def test_livesearch_concurrent_same_keyword_coalesces_upstream_call(monkey
     assert call_count["n"] == 1  # 只有一次真正打到上游
     assert ls._stats["coalesced"] == 4  # 其余 4 个请求复用了同一个结果
     assert ls._inflight == {}  # 用完即清理，不常驻
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_livesearch_rate_limited_after_threshold(monkeypatch, db_session):
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+
+    async def fake_fetch(keyword, refresh):
+        return {"total": 0, "by_type": {}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        last_status = None
+        for i in range(31):
+            # 每次换个关键词，确保不会命中缓存而提前短路，真实触达限流依赖
+            resp = await client.get(
+                "/api/livesearch", params={"q": f"限流测试关键词{i}"}, headers=headers
+            )
+            last_status = resp.status_code
+        assert last_status == 429
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_livesearch_concurrent_distinct_keywords_bounded_by_semaphore(monkeypatch, db_session):
+    """不同关键词的并发上游调用应该被信号量限制在 _PANSOU_CONCURRENCY 的容量内
+    （相同关键词已经被请求合并机制收敛，这里专门测试"合并机制收敛不到"的场景）。"""
+    import asyncio as _asyncio
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    ls._inflight.clear()
+    concurrent = {"current": 0, "max": 0}
+    lock = _asyncio.Lock()
+
+    async def fake_fetch_pansou(keyword, refresh):
+        async with lock:
+            concurrent["current"] += 1
+            concurrent["max"] = max(concurrent["max"], concurrent["current"])
+        await _asyncio.sleep(0.05)
+        async with lock:
+            concurrent["current"] -= 1
+        return {"total": 0, "by_type": {}}
+
+    async def gated_fetch(keyword, refresh):
+        async with ls._PANSOU_CONCURRENCY:
+            return await fake_fetch_pansou(keyword, refresh)
+
+    monkeypatch.setattr(ls, "_fetch_pansou", gated_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await _asyncio.gather(*[
+            client.get("/api/livesearch", params={"q": f"信号量测试关键词{i}"}, headers=headers)
+            for i in range(8)
+        ])
+
+    assert concurrent["max"] <= 4
     ls._cache.clear()
