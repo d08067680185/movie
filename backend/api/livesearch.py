@@ -44,6 +44,11 @@ _URL_RE = re.compile(r"https?://\S+")
 _cache: dict = {}          # keyword -> (ts, payload)
 _CACHE_TTL = 300.0
 _CACHE_MAX = 200
+# 2026-08-16: 此前硬编码100，是本项目自己加的保护性截断（PanSou /api/search本身不
+# 分页也没有条数上限说明）。前端 LiveSearchResults.tsx 早就有客户端"加载更多"分页
+# (visibleCount/PAGE_SIZE)，服务端多给的数据会自然分批展示，不需要跟着改前端。
+# 300是"明显比100宽松"和"单进程内存缓存不被极端关键词打爆"之间的折中值。
+_MAX_ITEMS_PER_TYPE = 300
 _lock = asyncio.Lock()
 
 # 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
@@ -150,7 +155,7 @@ def _normalize(data: dict) -> dict:
                 "datetime": it.get("datetime"),
                 "source": it.get("source") or "",
             })
-            if len(items) >= 100:
+            if len(items) >= _MAX_ITEMS_PER_TYPE:
                 break
         if items:
             by_type[ctype] = items
