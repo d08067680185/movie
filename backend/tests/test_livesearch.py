@@ -343,6 +343,73 @@ async def test_livesearch_exclude_syntax_filters_results_without_polluting_upstr
 
 
 @pytest.mark.asyncio
+async def test_livesearch_converts_traditional_input_to_simplified_before_upstream(monkeypatch, db_session):
+    """繁体输入应该转简体再发给PanSou/算缓存key，跟对应简体输入共享同一批结果。"""
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    captured_keyword = {}
+
+    async def fake_fetch(keyword, refresh):
+        captured_keyword["kw"] = keyword
+        return {"total": 0, "by_type": {}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get("/api/livesearch", params={"q": "鬥羅大陸"}, headers=headers)
+
+    assert r.status_code == 200
+    assert captured_keyword["kw"] == "斗罗大陆"
+    # 简体查询应该命中刚才繁体查询建立的同一个缓存槽，不应该再打一次上游
+    call_count_before = len(captured_keyword)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r2 = await client.get("/api/livesearch", params={"q": "斗罗大陆"}, headers=headers)
+    assert r2.status_code == 200
+    assert captured_keyword["kw"] == "斗罗大陆"  # 没有被第二次调用覆盖成别的值说明_fetch_pansou没被再次调用
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_livesearch_attaches_source_hits_without_mutating_cached_payload(monkeypatch, db_session):
+    """响应里每条结果应该带 source_hits；且不能原地修改缓存里的 payload 对象
+    （否则下一次复用缓存的请求会读到被污染的数据）。"""
+    from main import app
+    from httpx import ASGITransport
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+    from models import PansouSourceStat
+
+    ls._cache.clear()
+    await db_session.execute(sqlite_insert(PansouSourceStat).values(source_key="tg:testsrc", hit_count=42))
+    await db_session.commit()
+    ls._source_hits_cache.clear()
+    ls._source_hits_cache_ts = 0.0
+
+    async def fake_fetch(keyword, refresh):
+        return {"total": 1, "by_type": {"quark": [
+            {"title": "测试标题", "url": "https://pan.quark.cn/s/x1", "password": "", "datetime": None, "source": "tg:testsrc"},
+        ]}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r1 = await client.get("/api/livesearch", params={"q": "来源命中测试关键词"}, headers=headers)
+        r2 = await client.get("/api/livesearch", params={"q": "来源命中测试关键词"}, headers=headers)  # 命中缓存
+
+    assert r1.json()["by_type"]["quark"][0]["source_hits"] == 42
+    assert r2.json()["by_type"]["quark"][0]["source_hits"] == 42
+    # 缓存里的原始payload本身不应该被污染出source_hits字段
+    cached_payload = next(v[1] for v in ls._cache.values())
+    assert "source_hits" not in cached_payload["by_type"]["quark"][0]
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
 async def test_check_links_proxies_pansou_and_keeps_only_ok_bad_states(monkeypatch):
     """代理 PanSou 原生 /api/check/links；只把 state=ok/bad 映射成 True/False，
     locked/uncertain/unsupported 不出现在结果里（前端据此区分"确认"和"不确定"）。

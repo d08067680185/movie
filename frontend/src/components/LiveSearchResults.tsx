@@ -369,6 +369,14 @@ export default function LiveSearchResults({
                         <span className="flex items-center gap-1">
                           <Globe size={11} />
                           来源: {(CLOUD_TYPE_LABELS[item._cloudType] || { label: item._cloudType }).label}
+                          {!!item.source_hits && (
+                            <span
+                              className="opacity-60"
+                              title="该来源(TG频道/插件)历史累计命中次数，供参考不代表内容质量"
+                            >
+                              · 历史命中{item.source_hits}次
+                            </span>
+                          )}
                         </span>
                         {item.password && <span>提取码: {item.password}</span>}
                         {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
@@ -376,7 +384,7 @@ export default function LiveSearchResults({
                           <span
                             className="flex items-center gap-1"
                             style={{ color: "#fbbf24" }}
-                            title="调用夸克/百度官方分享查询接口检测，目前仅支持这两家网盘"
+                            title="调用网盘官方分享查询接口检测，覆盖百度/阿里/夸克/天翼/UC/移动云盘/115/迅雷/123"
                           >
                             <AlertTriangle size={11} />
                             链接可能已失效

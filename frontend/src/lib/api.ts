@@ -144,6 +144,7 @@ export interface LiveSearchItem {
   password: string;
   datetime?: string;
   source: string;
+  source_hits?: number;
 }
 
 export interface LiveSearchResult {

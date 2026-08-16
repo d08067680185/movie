@@ -11,7 +11,8 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from sqlalchemy import func
+from opencc import OpenCC
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +23,10 @@ from utils import send_telegram
 from textnorm import normalize_keyword
 from dedup import clean_key
 from ratelimit import SlidingWindowLimiter, get_client_ip
+
+# TG频道/插件源内容以简体为主，繁体输入统一转成简体再发给PanSou查询/算缓存key，
+# 这样"斗羅大陸"和"斗罗大陆"能命中同一批结果+同一个缓存槽，不用维护简繁两套
+_T2S = OpenCC("t2s")
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,36 @@ _CACHE_MAX = 200
 # 300是"明显比100宽松"和"单进程内存缓存不被极端关键词打爆"之间的折中值。
 _MAX_ITEMS_PER_TYPE = 300
 _lock = asyncio.Lock()
+
+# 来源命中率展示给终端用户（此前 pansou_source_stats 只是后台admin监控用的死频道
+# 排查工具，见改动一）：内存缓存 source_key->hit_count，5分钟刷新一次，避免每次
+# 搜索响应都查一遍DB（一次搜索的by_type里可能有几百条item，每条都要查命中数）
+_source_hits_cache: dict[str, int] = {}
+_source_hits_cache_ts = 0.0
+_SOURCE_HITS_TTL = 300.0
+_source_hits_lock = asyncio.Lock()
+
+
+async def _get_source_hit_map() -> dict[str, int]:
+    global _source_hits_cache_ts
+    now = time.time()
+    if _source_hits_cache and (now - _source_hits_cache_ts) < _SOURCE_HITS_TTL:
+        return _source_hits_cache
+    async with _source_hits_lock:
+        # 双重检查：拿到锁后可能已经被另一个并发请求刷新过了
+        if _source_hits_cache and (time.time() - _source_hits_cache_ts) < _SOURCE_HITS_TTL:
+            return _source_hits_cache
+        try:
+            async with AsyncSessionLocal() as db:
+                rows = (await db.execute(
+                    select(PansouSourceStat.source_key, PansouSourceStat.hit_count)
+                )).all()
+            _source_hits_cache.clear()
+            _source_hits_cache.update({key: count for key, count in rows})
+            _source_hits_cache_ts = time.time()
+        except Exception as e:
+            logger.warning("加载来源命中率缓存失败: %s", e)
+    return _source_hits_cache
 
 # 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
 _stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0, "coalesced": 0}
@@ -365,6 +400,10 @@ async def livesearch(
     keyword, exclude_terms = _parse_query(raw_q)
     if not keyword:
         raise HTTPException(status_code=400, detail="不能只有排除词，至少需要一个正向关键词")
+    # 繁体输入统一转简体再往下走（缓存key/上游查询/热词统计全部用转换后的值），
+    # 让繁体输入和对应的简体输入命中同一批结果、同一个缓存槽
+    keyword = _T2S.convert(keyword)
+    exclude_terms = [_T2S.convert(t) for t in exclude_terms]
     # 缓存key/热词统计用归一化后的关键词(大小写不敏感+空白折叠)，避免"三体"和
     # "三体 "(尾部空格)/大小写不同的英文标题各占一个缓存槽、热词各算一条；实际
     # 发给 PanSou 的查询串仍用用户原始输入，不影响上游搜索语义
@@ -419,4 +458,12 @@ async def livesearch(
     if cloud_type:
         by_type = {cloud_type: by_type.get(cloud_type, [])}
     total = sum(len(v) for v in by_type.values())
+
+    # 来源命中率：新建 item 字典而不是原地改，因为 by_type 在没有排除词时跟
+    # _cache 里存的是同一个对象引用，原地 mutate 会污染后续请求复用的缓存数据
+    hit_map = await _get_source_hit_map()
+    by_type = {
+        ctype: [{**it, "source_hits": hit_map.get(it["source"], 0)} for it in items]
+        for ctype, items in by_type.items()
+    }
     return {"total": total, "types": types, "by_type": by_type}
