@@ -169,6 +169,25 @@ export async function liveSearch(q: string, refresh = false, section?: string): 
   }
 }
 
+// 网盘链接有效性检测：目前只覆盖夸克/百度(两家在全网搜结果里占比最大，且都有
+// 不需要登录的公开查询接口)，返回结果里没出现的url视为"不支持检测"而非"有效"。
+// 最多一次查30个(一页可见量级)，探测本身失败时后端会默认true(不误判失效)。
+export async function checkPanLinks(urls: string[]): Promise<Record<string, boolean>> {
+  if (urls.length === 0) return {};
+  try {
+    const res = await fetch(`${API_BASE}/api/livesearch/check-links`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls: urls.slice(0, 30) }),
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    return data.results ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export async function getStats(): Promise<Stats> {
   return fetchApi("/api/stats");
 }

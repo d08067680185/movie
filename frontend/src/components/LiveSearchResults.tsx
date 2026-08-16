@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Globe, RefreshCw, Copy, Check } from "lucide-react";
-import { liveSearch, getHotResources, LiveSearchResult, LiveSearchItem, ResourceCard } from "@/lib/api";
+import { Search, Globe, RefreshCw, Copy, Check, AlertTriangle } from "lucide-react";
+import { liveSearch, checkPanLinks, getHotResources, LiveSearchResult, LiveSearchItem, ResourceCard } from "@/lib/api";
 import { CLOUD_TYPE_LABELS } from "@/lib/utils";
 import PanLinkModal from "./PanLinkModal";
 
@@ -73,6 +73,12 @@ function HotRankings() {
 
 const PAGE_SIZE = 20;
 
+// 画质筛选：纯前端展示层过滤，对标题做子串匹配，不发新请求。跟后端
+// dedup.py:QUALITY_WORDS 覆盖的是同一类词，但这里只需要几个常见档位做chip，
+// 不需要跟后端共享完整正则表
+const QUALITY_TAGS = ["4K", "2K", "1080P", "720P", "480P", "BD"] as const;
+const ALL_QUALITY = "__all_quality__";
+
 function formatDate(dt?: string): string {
   if (!dt) return "";
   const d = new Date(dt);
@@ -117,6 +123,8 @@ export default function LiveSearchResults({
   const [sortBy, setSortBy] = useState<"default" | "newest">("default");
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [activeQuality, setActiveQuality] = useState<string>(ALL_QUALITY);
+  const [checkedLinks, setCheckedLinks] = useState<Record<string, boolean>>({});
 
   function handleCopy(item: LiveSearchItem, key: string) {
     const text = item.password ? `${item.url} 提取码: ${item.password}` : item.url;
@@ -134,8 +142,9 @@ export default function LiveSearchResults({
     let cancelled = false;
     setLoading(true);
     setError(null);
-    if (!refresh) setActiveType(ALL_TYPE);
+    if (!refresh) { setActiveType(ALL_TYPE); setActiveQuality(ALL_QUALITY); }
     setVisibleCount(PAGE_SIZE);
+    setCheckedLinks({});
     liveSearch(q, refresh, section || undefined)
       .then((r) => { if (!cancelled) setResult(r); })
       .catch(() => { if (!cancelled) setError("全网搜服务暂时不可用，请稍后重试"); })
@@ -148,26 +157,45 @@ export default function LiveSearchResults({
     return doSearch(false);
   }, [q, section]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const types = result?.types || [];
+  const isAll = activeType === ALL_TYPE;
+  const rawItems: TaggedItem[] = isAll
+    ? types.flatMap((t) => (result?.by_type[t.type] || []).map((it) => ({ ...it, _cloudType: t.type })))
+    : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }));
+  const allItems = activeQuality === ALL_QUALITY
+    ? rawItems
+    : rawItems.filter((it) => it.title.toUpperCase().includes(activeQuality));
+  const sortedItems = sortBy === "newest"
+    ? [...allItems].sort((a, b) => sortKey(b.datetime) - sortKey(a.datetime))
+    : allItems;
+  const items = sortedItems.slice(0, visibleCount);
+  const remaining = sortedItems.length - items.length;
+
+  // 当前可见的结果里，挑出还没检测过有效性的链接批量查一次（后端只认识夸克/百度，
+  // 其余类型请求了也会被忽略）；用 checkedLinks 记忆已查过的url，避免翻页/切筛选
+  // 时重复请求同一批链接
+  useEffect(() => {
+    const pending = items.map((it) => it.url).filter((u) => !(u in checkedLinks));
+    if (pending.length === 0) return;
+    let cancelled = false;
+    checkPanLinks(pending).then((res) => {
+      if (cancelled) return;
+      setCheckedLinks((prev) => ({ ...prev, ...res }));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items.map((it) => it.url).join(",")]);
+
   if (!q.trim()) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center" style={{ color: "var(--text-muted)" }}>
         <Globe size={48} className="mb-4 opacity-30" />
         <p className="text-lg">输入关键词，实时聚合全网网盘资源</p>
         <p className="text-sm mt-2">支持夸克 / 百度 / 阿里 / 迅雷 / 115 等网盘</p>
+        <p className="text-xs mt-3 opacity-70">支持排除词：如「斗罗大陆 -解说」会过滤掉标题含「解说」的结果</p>
       </div>
     );
   }
-
-  const types = result?.types || [];
-  const isAll = activeType === ALL_TYPE;
-  const allItems: TaggedItem[] = isAll
-    ? types.flatMap((t) => (result?.by_type[t.type] || []).map((it) => ({ ...it, _cloudType: t.type })))
-    : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }));
-  const sortedItems = sortBy === "newest"
-    ? [...allItems].sort((a, b) => sortKey(b.datetime) - sortKey(a.datetime))
-    : allItems;
-  const items = sortedItems.slice(0, visibleCount);
-  const remaining = sortedItems.length - items.length;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[170px_minmax(0,1fr)_240px] gap-5">
@@ -222,6 +250,40 @@ export default function LiveSearchResults({
             );
           })}
         </div>
+
+        {/* 画质筛选：纯前端标题子串过滤，跟网盘类型筛选可叠加 */}
+        {types.length > 0 && (
+          <div
+            className="rounded-xl p-3 mt-3 flex lg:flex-col gap-1.5 overflow-x-auto"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+          >
+            <h3 className="hidden lg:flex text-sm font-bold mb-1 items-center gap-1.5">
+              <span className="w-1 h-4 rounded" style={{ background: "#e50914" }} />
+              画质
+            </h3>
+            <button
+              onClick={() => { setActiveQuality(ALL_QUALITY); setVisibleCount(PAGE_SIZE); }}
+              className="px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-all text-left"
+              style={activeQuality === ALL_QUALITY
+                ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", fontWeight: 600 }
+                : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+            >
+              不限
+            </button>
+            {QUALITY_TAGS.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => { setActiveQuality(tag); setVisibleCount(PAGE_SIZE); }}
+                className="px-3 py-1.5 rounded-lg text-sm whitespace-nowrap transition-all text-left"
+                style={activeQuality === tag
+                  ? { background: "rgba(229,9,20,0.12)", color: "#e50914", border: "1px solid rgba(229,9,20,0.3)", fontWeight: 600 }
+                  : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+              >
+                {tag}
+              </button>
+            ))}
+          </div>
+        )}
       </aside>
 
       {/* 中间：结果列表 */}
@@ -311,6 +373,16 @@ export default function LiveSearchResults({
                         </span>
                         {item.password && <span>提取码: {item.password}</span>}
                         {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
+                        {checkedLinks[item.url] === false && (
+                          <span
+                            className="flex items-center gap-1"
+                            style={{ color: "#fbbf24" }}
+                            title="调用夸克/百度官方分享查询接口检测，目前仅支持这两家网盘"
+                          >
+                            <AlertTriangle size={11} />
+                            链接可能已失效
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">

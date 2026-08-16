@@ -288,3 +288,139 @@ async def test_livesearch_concurrent_distinct_keywords_bounded_by_semaphore(monk
 
     assert concurrent["max"] <= 4
     ls._cache.clear()
+
+
+def test_parse_query_splits_include_and_exclude_terms():
+    assert ls._parse_query("斗罗大陆 -解说 -花絮") == ("斗罗大陆", ["解说", "花絮"])
+    assert ls._parse_query("斗罗大陆") == ("斗罗大陆", [])
+    assert ls._parse_query("- 斗罗大陆") == ("- 斗罗大陆", [])  # 单独一个"-"不算排除词语法(长度<=1)
+
+
+def test_apply_exclude_filter_removes_matching_titles_and_can_empty_a_type():
+    by_type = {
+        "quark": [{"title": "斗罗大陆解说版"}, {"title": "斗罗大陆正片"}],
+        "baidu": [{"title": "斗罗大陆解说合集"}],
+    }
+    result = ls._apply_exclude_filter(by_type, ["解说"])
+    assert [it["title"] for it in result["quark"]] == ["斗罗大陆正片"]
+    assert "baidu" not in result  # 全部被排除后整个类型键消失，跟原有空类型不展示的行为一致
+
+
+def test_apply_exclude_filter_noop_when_no_exclude_terms():
+    by_type = {"quark": [{"title": "任意标题"}]}
+    assert ls._apply_exclude_filter(by_type, []) is by_type
+
+
+@pytest.mark.asyncio
+async def test_livesearch_exclude_syntax_filters_results_without_polluting_upstream_keyword(monkeypatch, db_session):
+    """排除词不应该被发给PanSou上游查询——只用来过滤已经拿到的结果。"""
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    captured_keyword = {}
+
+    async def fake_fetch(keyword, refresh):
+        captured_keyword["kw"] = keyword
+        return {"total": 2, "by_type": {"quark": [
+            {"title": "斗罗大陆解说版", "url": "https://pan.quark.cn/s/a1", "password": "", "datetime": None, "source": "tg:x"},
+            {"title": "斗罗大陆正片", "url": "https://pan.quark.cn/s/a2", "password": "", "datetime": None, "source": "tg:x"},
+        ]}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.get("/api/livesearch", params={"q": "斗罗大陆 -解说"}, headers=headers)
+
+    assert r.status_code == 200
+    data = r.json()
+    titles = [it["title"] for it in data["by_type"]["quark"]]
+    assert titles == ["斗罗大陆正片"]
+    assert captured_keyword["kw"] == "斗罗大陆"  # 排除词没有混进发给上游的查询串
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
+async def test_check_quark_link_reads_code_field():
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        def __init__(self, response):
+            self._response = response
+
+        async def post(self, *args, **kwargs):
+            return self._response
+
+    assert await ls._check_quark_link(FakeClient(FakeResp({"code": 0})), "pwd") is True
+    assert await ls._check_quark_link(FakeClient(FakeResp({"code": 41006})), "pwd") is False
+
+
+@pytest.mark.asyncio
+async def test_check_quark_link_defaults_true_on_request_failure():
+    class BoomClient:
+        async def post(self, *args, **kwargs):
+            raise httpx.ConnectError("boom")
+
+    # 探测本身失败不应该被判定为失效——不确定不等于失效
+    assert await ls._check_quark_link(BoomClient(), "pwd") is True
+
+
+@pytest.mark.asyncio
+async def test_check_baidu_link_reads_errno_field():
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        def __init__(self, response):
+            self._response = response
+
+        async def get(self, *args, **kwargs):
+            return self._response
+
+    assert await ls._check_baidu_link(FakeClient(FakeResp({"errno": 0})), "surl") is True
+    assert await ls._check_baidu_link(FakeClient(FakeResp({})), "surl") is True  # 无errno字段视为正常
+    assert await ls._check_baidu_link(FakeClient(FakeResp({"errno": -21})), "surl") is False
+
+
+@pytest.mark.asyncio
+async def test_check_links_endpoint_dispatches_by_domain_and_skips_unsupported(monkeypatch, db_session):
+    from main import app
+    from httpx import ASGITransport
+
+    async def fake_quark(client, pwd_id):
+        return pwd_id == "valid"
+
+    async def fake_baidu(client, surl):
+        return surl == "valid"
+
+    monkeypatch.setattr(ls, "_check_quark_link", fake_quark)
+    monkeypatch.setattr(ls, "_check_baidu_link", fake_baidu)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r = await client.post("/api/livesearch/check-links", json={"urls": [
+            "https://pan.quark.cn/s/valid",
+            "https://pan.quark.cn/s/dead?pwd=1",
+            "https://pan.baidu.com/s/valid?pwd=8888",
+            "https://pan.aliyundrive.com/s/notsupported",
+        ]}, headers=headers)
+
+    assert r.status_code == 200
+    results = r.json()["results"]
+    assert results == {
+        "https://pan.quark.cn/s/valid": True,
+        "https://pan.quark.cn/s/dead?pwd=1": False,
+        "https://pan.baidu.com/s/valid?pwd=8888": True,
+    }  # 不支持的网盘类型直接不出现在结果里，不是False

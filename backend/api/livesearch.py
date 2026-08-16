@@ -10,7 +10,7 @@ from collections import Counter
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from sqlalchemy import func
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +41,31 @@ SECTION_KEYWORD_HINTS = {
 }
 
 _URL_RE = re.compile(r"https?://\S+")
+
+
+def _parse_query(q: str) -> tuple[str, list[str]]:
+    """解析 `-排除词` 语法。按空白切分，`-`开头(长度>1)的词归入排除词，
+    其余拼回正向关键词。排除词不参与PanSou上游查询/缓存key，只在拿到结果后
+    做后处理过滤——这样同一组正向词、不同排除词组合能共享同一次上游调用。"""
+    include, exclude = [], []
+    for tok in q.split():
+        if tok.startswith("-") and len(tok) > 1:
+            exclude.append(tok[1:])
+        else:
+            include.append(tok)
+    return " ".join(include).strip(), exclude
+
+
+def _apply_exclude_filter(by_type: dict, exclude_terms: list[str]) -> dict:
+    norm_excludes = [normalize_keyword(t) for t in exclude_terms if t]
+    if not norm_excludes:
+        return by_type
+    filtered = {}
+    for ctype, items in by_type.items():
+        kept = [it for it in items if not any(ex in normalize_keyword(it["title"]) for ex in norm_excludes)]
+        if kept:
+            filtered[ctype] = kept
+    return filtered
 
 _cache: dict = {}          # keyword -> (ts, payload)
 _CACHE_TTL = 300.0
@@ -78,6 +103,77 @@ def rate_limit_livesearch(request: Request):
     ip = get_client_ip(request)
     _livesearch_limiter.check(ip)
     _livesearch_limiter.record(ip)
+
+
+# 链接有效性检测：夸克/百度各自的分享页在渲染文件信息前，会调用一个不需要登录的
+# 公开接口查询分享是否存在——跟"转存到自己网盘"用的鉴权接口是两回事，这里只读
+# 不写，不需要账号凭证。每次结果列表可见量级(<=30)，阈值比搜索本身宽松一些
+_check_links_limiter = SlidingWindowLimiter(
+    max_attempts=90, window_seconds=60, message="链接检测请求过于频繁，请稍后再试"
+)
+
+
+def rate_limit_check_links(request: Request):
+    ip = get_client_ip(request)
+    _check_links_limiter.check(ip)
+    _check_links_limiter.record(ip)
+
+
+_QUARK_SHARE_RE = re.compile(r"quark\.cn/s/([a-zA-Z0-9]+)")
+_BAIDU_SHARE_RE = re.compile(r"baidu\.com/s/([a-zA-Z0-9_-]+)")
+
+
+async def _check_quark_link(client: httpx.AsyncClient, pwd_id: str) -> bool:
+    """夸克分享页用的公开接口，不需要登录。真实分享 code=0；不存在/已取消返回
+    非0(如41006"分享不存在")。探测本身失败(超时/网络错误)时返回True——不确定
+    不等于失效，避免网络抖动把正常链接错标。"""
+    try:
+        resp = await client.post(
+            "https://drive-h.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc",
+            json={"pwd_id": pwd_id, "passcode": ""},
+            timeout=6.0,
+        )
+        return resp.json().get("code") == 0
+    except Exception:
+        return True
+
+
+async def _check_baidu_link(client: httpx.AsyncClient, surl: str) -> bool:
+    """百度分享页同样有不需要登录的公开查询接口。errno=0(或不带errno)视为有效，
+    实测常见失效场景 errno=-21"该分享已被取消"、errno=140(格式错误)。"""
+    try:
+        resp = await client.get(
+            "https://pan.baidu.com/api/shorturlinfo",
+            params={"app_id": "250528", "shorturl": surl, "root": "1"},
+            timeout=6.0,
+        )
+        errno = resp.json().get("errno")
+        return errno in (None, 0)
+    except Exception:
+        return True
+
+
+@router.post("/livesearch/check-links")
+async def check_links(
+    urls: list[str] = Body(..., embed=True),
+    _rl=Depends(rate_limit_check_links),
+):
+    """网盘链接有效性检测，目前只覆盖夸克/百度(两家在全网搜结果里占比最大，
+    且都有不需要登录的公开查询接口)；其余网盘类型没找到等价的公开接口，
+    不在此列表里的url不会出现在返回结果中，前端据此判断"不支持检测"。"""
+    urls = urls[:30]
+    results: dict[str, bool] = {}
+    async with httpx.AsyncClient() as client:
+        async def _one(u: str):
+            m = _QUARK_SHARE_RE.search(u)
+            if m:
+                results[u] = await _check_quark_link(client, m.group(1))
+                return
+            m = _BAIDU_SHARE_RE.search(u)
+            if m:
+                results[u] = await _check_baidu_link(client, m.group(1))
+        await asyncio.gather(*[_one(u) for u in urls])
+    return {"results": results}
 
 
 async def _fetch_coalesced(cache_key: str, upstream_keyword: str, refresh: bool) -> dict:
@@ -282,9 +378,14 @@ async def livesearch(
     db: AsyncSession = Depends(get_db),
     _rl=Depends(rate_limit_livesearch),
 ):
-    keyword = q.strip()
-    if not keyword:
+    raw_q = q.strip()
+    if not raw_q:
         raise HTTPException(status_code=400, detail="关键词不能为空")
+    # `-排除词` 语法：排除词不参与上游查询/缓存key，只在拿到结果后做后处理过滤
+    # （见 _apply_exclude_filter），这样同一组正向词、不同排除词能共享同一次上游调用
+    keyword, exclude_terms = _parse_query(raw_q)
+    if not keyword:
+        raise HTTPException(status_code=400, detail="不能只有排除词，至少需要一个正向关键词")
     # 缓存key/热词统计用归一化后的关键词(大小写不敏感+空白折叠)，避免"三体"和
     # "三体 "(尾部空格)/大小写不同的英文标题各占一个缓存槽、热词各算一条；实际
     # 发给 PanSou 的查询串仍用用户原始输入，不影响上游搜索语义
@@ -334,7 +435,7 @@ async def livesearch(
             # 一直不更新"这种问题排查不出来，至少留个痕迹
             logger.warning("全网搜热词写入失败 keyword=%s: %s", keyword, e)
 
-    by_type = payload["by_type"]
+    by_type = _apply_exclude_filter(payload["by_type"], exclude_terms)
     types = [{"type": t, "count": len(items)} for t, items in by_type.items()]
     if cloud_type:
         by_type = {cloud_type: by_type.get(cloud_type, [])}
