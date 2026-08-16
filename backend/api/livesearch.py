@@ -8,6 +8,7 @@ import asyncio
 import logging
 from collections import Counter
 from typing import Optional
+from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
@@ -32,8 +33,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["livesearch"])
 
-# 展示顺序即优先级；不在此表的类型（magnet/ed2k等）不返回
-CLOUD_TYPES = ["quark", "baidu", "aliyun", "uc", "xunlei", "115", "123", "tianyi", "mobile", "pikpak"]
+# 展示顺序即优先级；magnet(磁力/BT种子)放最后——PanSou本身就有这个类型(此前
+# 一直被过滤掉)，2026-08-16 起还会额外并发查 bitsearch.to(见 _fetch_bitsearch)
+# 补充英文磁力资源，PanSou现有147个频道+90个插件清一色中文资源分享向，磁力这条
+# 线是目前唯一覆盖到英文内容的渠道
+CLOUD_TYPES = ["quark", "baidu", "aliyun", "uc", "xunlei", "115", "123", "tianyi", "mobile", "pikpak", "magnet"]
 
 # PanSou 本身没有内容分类概念(搜的是TG分享群/插件源的原始文本)，只能靠给查询词
 # 追加板块相关的限定词来做粗略加权，不是精确过滤——video 板块沿用原有行为不加限定词，
@@ -45,7 +49,7 @@ SECTION_KEYWORD_HINTS = {
     "game": "游戏",
 }
 
-_URL_RE = re.compile(r"https?://\S+")
+_URL_RE = re.compile(r"(?:https?://|magnet:\?)\S+")
 
 
 def _parse_query(q: str) -> tuple[str, list[str]]:
@@ -322,18 +326,64 @@ async def _record_source_stats(by_type: dict) -> None:
         logger.warning("PanSou来源统计写入失败: %s", e)
 
 
-async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
-    async with _PANSOU_CONCURRENCY:
-        params = {"kw": keyword, "res": "merge"}
-        if refresh:
-            params["refresh"] = "true"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(f"{settings.PANSOU_URL}/api/search", params=params)
+_BITSEARCH_URL = "https://bitsearch.to/api/v1/search"
+
+
+async def _fetch_bitsearch(keyword: str) -> list[dict]:
+    """bitsearch.to（solidtorrents.to改版后重定向到的新域名）有公开、不需要鉴权
+    的JSON搜索API，是目前全网搜里唯一覆盖英文磁力/BT资源的渠道——PanSou自己的
+    147个频道+90个插件清一色中文资源分享向。失败(超时/网络错误/接口变更)静默
+    返回空列表，不影响主搜索流程，也不接入PanSou那套熔断/限流机制(独立小接口，
+    没必要共用)。"""
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as client:
+            resp = await client.get(
+                _BITSEARCH_URL,
+                params={"q": keyword, "category": "all", "sort": "seeders", "limit": 20},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
             resp.raise_for_status()
-            body = resp.json()
+            data = resp.json()
+    except Exception as e:
+        logger.warning("bitsearch.to 请求失败: %s", e)
+        return []
+    items = []
+    for r in data.get("results") or []:
+        infohash = r.get("infohash")
+        title = r.get("title")
+        if not infohash or not title:
+            continue
+        seeders = r.get("seeders", 0)
+        items.append({
+            "url": f"magnet:?xt=urn:btih:{infohash}&dn={quote(title)}",
+            "password": "",
+            "note": f"{title} (做种{seeders})",
+            "datetime": r.get("updatedAt"),
+            "source": "api:bitsearch",
+        })
+    return items
+
+
+async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
+    async def _call_pansou():
+        async with _PANSOU_CONCURRENCY:
+            params = {"kw": keyword, "res": "merge"}
+            if refresh:
+                params["refresh"] = "true"
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{settings.PANSOU_URL}/api/search", params=params)
+                resp.raise_for_status()
+                return resp.json()
+
+    body, bitsearch_items = await asyncio.gather(_call_pansou(), _fetch_bitsearch(keyword))
     if body.get("code") not in (0, None):
         raise HTTPException(status_code=502, detail=f"pansou error: {body.get('message')}")
-    payload = _normalize(body.get("data") or body, keyword)
+    data = body.get("data") or body
+    if bitsearch_items:
+        merged = dict(data.get("merged_by_type") or {})
+        merged["magnet"] = (merged.get("magnet") or []) + bitsearch_items
+        data = {**data, "merged_by_type": merged}
+    payload = _normalize(data, keyword)
     asyncio.create_task(_record_source_stats(payload["by_type"]))
     return payload
 

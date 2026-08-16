@@ -174,7 +174,9 @@ export default function LiveSearchResults({
   // 当前可见的结果里，挑出还没检测过有效性的链接批量查一次（后端代理PanSou，覆盖
   // 9种网盘）；用 checkedLinks 记忆已查过的url，避免翻页/切筛选时重复请求同一批链接
   useEffect(() => {
-    const pending = items.filter((it) => !(it.url in checkedLinks));
+    // magnet没有对应的有效性检测能力(PanSou的/api/check/links只认网盘类型)，
+    // 查了也只会被后端忽略，直接跳过省一次无意义的请求
+    const pending = items.filter((it) => it._cloudType !== "magnet" && !(it.url in checkedLinks));
     if (pending.length === 0) return;
     let cancelled = false;
     checkPanLinks(pending.map((it) => ({ url: it.url, cloudType: it._cloudType }))).then((res) => {

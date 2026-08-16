@@ -32,6 +32,7 @@ export const CLOUD_TYPE_LABELS: Record<string, { label: string; icon: string; ap
   tianyi: { label: "天翼云盘", icon: "📡", app: "天翼云盘APP" },
   mobile: { label: "移动云盘", icon: "📱", app: "移动云盘APP" },
   pikpak: { label: "PikPak",   icon: "🚀", app: "PikPak APP" },
+  magnet: { label: "磁力/BT",  icon: "🧲", app: "迅雷/BitComet等BT客户端" },
 };
 
 export const LINK_TYPE_LABELS: Record<string, { label: string; bg: string; color: string; border: string; icon: string }> = {

@@ -17,6 +17,7 @@ export default function PanLinkModal({ item, cloudType, onClose }: Props) {
   const [copied, setCopied] = useState(false);
   const [faved, setFaved] = useState(() => isPanFavorited(item.url));
   const meta = CLOUD_TYPE_LABELS[cloudType] || { label: "网盘", icon: "🔗", app: "网盘APP" };
+  const isMagnet = cloudType === "magnet";
 
   function handleFav() {
     setFaved(togglePanFavorite(item, cloudType));
@@ -64,10 +65,14 @@ export default function PanLinkModal({ item, cloudType, onClose }: Props) {
         </button>
 
         <h3 className="text-center text-lg font-bold mb-1">
-          请使用 <span style={{ color: "#e50914" }}>{meta.app}</span> 扫码获取
+          {isMagnet
+            ? <>复制磁力链接，用 <span style={{ color: "#e50914" }}>{meta.app}</span> 打开</>
+            : <>请使用 <span style={{ color: "#e50914" }}>{meta.app}</span> 扫码获取</>}
         </h3>
         <p className="text-center text-xs mb-4" style={{ color: "var(--text-secondary)" }}>
-          打开{meta.app} - 点击搜索框中的相机 - 扫码即可保存
+          {isMagnet
+            ? "点击下方「复制链接」，粘贴到BT下载工具的磁力链接输入框即可"
+            : `打开${meta.app} - 点击搜索框中的相机 - 扫码即可保存`}
         </p>
 
         {/* 二维码（白底保证扫码识别率） */}
@@ -91,7 +96,9 @@ export default function PanLinkModal({ item, cloudType, onClose }: Props) {
           style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)" }}
         >
           <span className="text-base">💡</span>
-          网盘分享链接可能随时失效，请及时转存到自己的网盘！
+          {isMagnet
+            ? "磁力链接依赖P2P做种者，做种数越高下载越快；本站不提供文件存储，只做链接聚合"
+            : "网盘分享链接可能随时失效，请及时转存到自己的网盘！"}
         </div>
 
         <p className="text-sm font-medium mb-4 text-center break-all" style={{ color: "var(--text-primary)" }}>

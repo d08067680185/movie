@@ -15,6 +15,11 @@ def test_clean_url_extracts_first_url_and_strips_trailing_punctuation():
     assert ls._clean_url("没有链接") is None
 
 
+def test_clean_url_recognizes_magnet_uri():
+    magnet = "magnet:?xt=urn:btih:0A16510705A12D253D0BE8A8A3CFE8575E3E8056&dn=Oppenheimer"
+    assert ls._clean_url(magnet) == magnet
+
+
 def test_normalize_strips_trailing_hash_from_password_and_bare_trailing_hash_url():
     # 尾部 # 是已知 pansou 噪音，password/url 字段都要清理；rstrip 只删真正
     # 末尾字符，url 中间的 #/list/share 路由片段不受影响（下一条用例锁定）
@@ -141,11 +146,14 @@ def test_circuit_opens_at_threshold_and_recovers_on_success():
 
 @pytest.mark.asyncio
 async def test_fetch_pansou_uses_short_timeout(monkeypatch):
-    captured = {}
+    # _fetch_pansou 现在会用 asyncio.gather 并发调用 PanSou 自身 + bitsearch.to
+    # (英文磁力补充源)，两者共用同一个被monkeypatch的AsyncClient，所以记录全部
+    # 出现过的timeout值而不是只存最后一个，避免并发覆盖导致断言到错误的那个
+    captured_timeouts = []
 
     class FakeAsyncClient:
         def __init__(self, *args, **kwargs):
-            captured["timeout"] = kwargs.get("timeout")
+            captured_timeouts.append(kwargs.get("timeout"))
 
         async def __aenter__(self):
             return self
@@ -159,7 +167,7 @@ async def test_fetch_pansou_uses_short_timeout(monkeypatch):
     monkeypatch.setattr(ls.httpx, "AsyncClient", FakeAsyncClient)
     with pytest.raises(httpx.ConnectError):
         await ls._fetch_pansou("keyword", refresh=False)
-    assert captured["timeout"] == 10.0
+    assert 10.0 in captured_timeouts  # PanSou自身请求仍是10秒超时，不受并发的bitsearch影响
 
 
 @pytest.mark.asyncio
@@ -483,3 +491,99 @@ async def test_check_links_returns_empty_on_upstream_failure(monkeypatch):
     ], _rl=None)
 
     assert result["results"] == {}  # 上游失败不确定不等于失效，返回空而不是误标False
+
+
+@pytest.mark.asyncio
+async def test_fetch_bitsearch_maps_results_to_magnet_items(monkeypatch):
+    class FakeResp:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"results": [
+                {"infohash": "ABC123", "title": "Oppenheimer (2023) [1080p]", "seeders": 1795, "updatedAt": "2026-08-16T12:09:05Z"},
+                {"infohash": "", "title": "缺infohash应该被跳过"},  # 应被过滤
+            ]}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, *args, **kwargs):
+            return FakeResp()
+
+    monkeypatch.setattr(ls.httpx, "AsyncClient", FakeClient)
+
+    items = await ls._fetch_bitsearch("Oppenheimer")
+    assert len(items) == 1
+    it = items[0]
+    assert it["url"] == "magnet:?xt=urn:btih:ABC123&dn=Oppenheimer%20%282023%29%20%5B1080p%5D"
+    assert "做种1795" in it["note"]
+    assert it["source"] == "api:bitsearch"
+
+
+@pytest.mark.asyncio
+async def test_fetch_bitsearch_returns_empty_on_failure(monkeypatch):
+    class BoomClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, *args, **kwargs):
+            raise httpx.ConnectError("boom")
+
+    monkeypatch.setattr(ls.httpx, "AsyncClient", BoomClient)
+    assert await ls._fetch_bitsearch("keyword") == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_pansou_merges_bitsearch_into_magnet_bucket(monkeypatch):
+    """_fetch_pansou 应该把 bitsearch 的英文磁力结果并进 PanSou 自己返回的
+    magnet 桶里，两边数据经过同一套 _normalize 去重/排序/截断流程。"""
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        async def get(self, url, *args, **kwargs):
+            if "bitsearch.to" in url:
+                return FakeResp({"results": [
+                    {"infohash": "ENGHASH", "title": "Oppenheimer 1080p", "seeders": 10, "updatedAt": None},
+                ]})
+            return FakeResp({"code": 0, "data": {"merged_by_type": {
+                "magnet": [{"url": "magnet:?xt=urn:btih:CNHASH", "note": "奥本海默中字版", "password": "", "datetime": None, "source": "plugin:x"}],
+                "quark": [],
+            }}})
+
+    monkeypatch.setattr(ls.httpx, "AsyncClient", FakeClient)
+
+    payload = await ls._fetch_pansou("Oppenheimer", refresh=False)
+    magnet_titles = {it["title"] for it in payload["by_type"].get("magnet", [])}
+    assert "Oppenheimer 1080p (做种10)" in magnet_titles
+    assert "奥本海默中字版" in magnet_titles
