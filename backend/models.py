@@ -211,6 +211,18 @@ class PanTransferSettings(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
+class PansouSourceStat(Base):
+    """全网搜(PanSou)来源命中统计——source_key 格式 tg:<频道名> / plugin:<插件名>，
+    与 docker-compose.yml 里 CHANNELS/ENABLED_PLUGINS 配置的条目一一对应，用于识别
+    长期零命中的死来源。只在 PanSou 上游真正被调用时(缓存未命中)累加，避免热门
+    关键词的缓存命中把统计刷成虚高。"""
+    __tablename__ = "pansou_source_stats"
+
+    source_key = Column(String(150), primary_key=True)
+    hit_count = Column(Integer, nullable=False, default=0)
+    last_hit_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class DiskUsageSnapshot(Base):
     """每日一次的磁盘占用快照，供管理后台画简单的历史趋势图(容量规划用)。"""
     __tablename__ = "disk_usage_snapshots"

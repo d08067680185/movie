@@ -4,7 +4,7 @@ from sqlalchemy import select, delete, func, text
 from sqlalchemy.orm import selectinload
 from typing import Optional, List
 from database import get_db
-from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download, DiskUsageSnapshot, Section
+from models import Source, SpiderLog, Resource, ResourceLink, SearchLog, Download, DiskUsageSnapshot, Section, PansouSourceStat
 from schemas import SourceOut, SpiderLogOut, ResourceCreate, LinkCreate, BatchResourceIn, BatchImportResult
 from spiders.scheduler import run_spider
 from config import settings, CATEGORY_MAP as _CAT_NORM
@@ -246,6 +246,34 @@ async def get_search_logs(
     return [{"keyword": l.keyword, "count": l.count,
              "last_searched": l.last_searched.isoformat() if l.last_searched else None}
             for l in logs]
+
+
+@router.get("/pansou-source-stats")
+async def get_pansou_source_stats(
+    limit: int = 250,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    """全网搜(PanSou)来源命中率榜单——source_key(tg:<频道>/plugin:<插件>)对应
+    docker-compose.yml 里 CHANNELS/ENABLED_PLUGINS 配置的条目。按命中数升序
+    （零命中/低命中的死来源排最前面），方便判断哪些配置了但从没产出过结果，
+    可以从配置里清理。"""
+    from datetime import datetime, timezone
+
+    result = await db.execute(
+        select(PansouSourceStat).order_by(PansouSourceStat.hit_count.asc()).limit(limit)
+    )
+    rows = result.scalars().all()
+    now = datetime.now(timezone.utc)
+    return [
+        {
+            "source_key": r.source_key,
+            "hit_count": r.hit_count,
+            "last_hit_at": r.last_hit_at.isoformat() if r.last_hit_at else None,
+            "days_since_hit": (now - r.last_hit_at).days if r.last_hit_at else None,
+        }
+        for r in rows
+    ]
 
 
 @router.patch("/links/{link_id}")

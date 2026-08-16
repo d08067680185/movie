@@ -21,7 +21,7 @@ def test_normalize_strips_trailing_hash_from_password_and_bare_trailing_hash_url
     raw = {"merged_by_type": {"quark": [
         {"url": "https://pan.quark.cn/s/x#", "note": "标题", "password": "abcd#"},
     ]}}
-    item = ls._normalize(raw)["by_type"]["quark"][0]
+    item = ls._normalize(raw, "")["by_type"]["quark"][0]
     assert item["url"] == "https://pan.quark.cn/s/x"
     assert item["password"] == "abcd"
 
@@ -30,7 +30,7 @@ def test_normalize_keeps_non_trailing_hash_in_url():
     raw = {"merged_by_type": {"quark": [
         {"url": "https://pan.quark.cn/s/x#/list/share", "note": "标题"},
     ]}}
-    item = ls._normalize(raw)["by_type"]["quark"][0]
+    item = ls._normalize(raw, "")["by_type"]["quark"][0]
     assert item["url"] == "https://pan.quark.cn/s/x#/list/share"
 
 
@@ -44,7 +44,7 @@ def test_normalize_dedupes_and_strips_html_tags():
             "unknown_type": [{"url": "https://x.example.com/y", "note": "不在白名单类型应被忽略"}],
         }
     }
-    result = ls._normalize(raw)
+    result = ls._normalize(raw, "")
     assert result["total"] == 1
     assert len(result["by_type"]["quark"]) == 1
     item = result["by_type"]["quark"][0]
@@ -68,10 +68,49 @@ def test_normalize_dedupes_near_identical_titles_within_same_cloud_type():
             ],
         }
     }
-    result = ls._normalize(raw)
+    result = ls._normalize(raw, "")
     assert len(result["by_type"]["quark"]) == 1
     assert result["by_type"]["quark"][0]["url"] == "https://pan.quark.cn/s/a1"
     assert len(result["by_type"]["baidu"]) == 1
+
+
+def test_normalize_sorts_by_relevance_before_truncating():
+    """标题里包含关键词的结果应该排在不含关键词的前面，即便它在 PanSou
+    原始返回顺序里靠后——这个排序发生在300条截断*之前*，防止真正相关的
+    结果被截断挡在外面。"""
+    raw = {"merged_by_type": {"quark": [
+        {"url": "https://pan.quark.cn/s/a1", "note": "完全不相关的其他影视资源"},
+        {"url": "https://pan.quark.cn/s/a2", "note": "斗罗大陆之燃魂战"},
+        {"url": "https://pan.quark.cn/s/a3", "note": "斗罗大陆"},
+    ]}}
+    result = ls._normalize(raw, "斗罗大陆")
+    titles = [it["title"] for it in result["by_type"]["quark"]]
+    assert titles == ["斗罗大陆", "斗罗大陆之燃魂战", "完全不相关的其他影视资源"]
+
+
+@pytest.mark.asyncio
+async def test_record_source_stats_upserts_counts(db_session):
+    from sqlalchemy import select
+    from models import PansouSourceStat
+
+    by_type = {
+        "quark": [{"source": "tg:a"}, {"source": "tg:a"}, {"source": "plugin:b"}],
+        "baidu": [{"source": "tg:a"}],
+    }
+    await ls._record_source_stats(by_type)
+    # 第二次调用应该在原有计数上累加，而不是覆盖
+    await ls._record_source_stats({"quark": [{"source": "tg:a"}]})
+
+    result = await db_session.execute(
+        select(PansouSourceStat).where(PansouSourceStat.source_key == "tg:a")
+    )
+    row = result.scalar_one()
+    assert row.hit_count == 4  # 2 + 1 + 1
+
+    result = await db_session.execute(
+        select(PansouSourceStat).where(PansouSourceStat.source_key == "plugin:b")
+    )
+    assert result.scalar_one().hit_count == 1
 
 
 @pytest.fixture(autouse=True)

@@ -74,6 +74,8 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Record<string, number> | null>(null);
   const [statsDetail, setStatsDetail] = useState<{ today_resources: number; today_links: number } | null>(null);
   const [panHealth, setPanHealth] = useState<{ pansou: string; cache_entries: number; requests: number; cache_hits: number; upstream_errors: number; circuit_open?: boolean } | null>(null);
+  const [sourceStats, setSourceStats] = useState<{ source_key: string; hit_count: number; last_hit_at: string | null; days_since_hit: number | null }[] | null>(null);
+  const [showSourceStats, setShowSourceStats] = useState(false);
   const [downloadMon, setDownloadMon] = useState<{
     downloads: { id: number; source_url: string; title: string | null; status: string; total_bytes: number | null; error_message: string | null; requester_ip: string | null; created_at: string; expires_at: string | null }[];
     status_counts: Record<string, number>;
@@ -239,6 +241,13 @@ export default function AdminPage() {
       const res = await fetch(`${API}/api/livesearch/health`);
       if (res.ok) setPanHealth(await res.json());
     } catch { setPanHealth(null); }
+  }
+
+  async function loadSourceStats() {
+    try {
+      const res = await apiFetch("/api/admin/pansou-source-stats", {}, token);
+      if (res.ok) setSourceStats(await res.json());
+    } catch { setSourceStats(null); }
   }
 
   async function loadDownloadMon(t = token) {
@@ -1030,6 +1039,47 @@ export default function AdminPage() {
                   <div className="text-xs mt-0.5" style={{ color: "#606070" }}>{label}</div>
                 </div>
               ))}
+            </div>
+            <div className="mt-3">
+              <button
+                onClick={() => { const next = !showSourceStats; setShowSourceStats(next); if (next && !sourceStats) loadSourceStats(); }}
+                className="text-xs px-2 py-1 rounded"
+                style={{ background: "rgba(255,255,255,0.06)", color: "#a0a0b0" }}
+              >
+                {showSourceStats ? "收起" : "查看"}来源命中率榜单（识别死频道/死插件）
+              </button>
+              {showSourceStats && (
+                <div className="mt-2 max-h-72 overflow-y-auto rounded-lg" style={{ background: "rgba(255,255,255,0.03)" }}>
+                  {!sourceStats ? (
+                    <div className="p-3 text-xs" style={{ color: "#606070" }}>加载中…</div>
+                  ) : sourceStats.length === 0 ? (
+                    <div className="p-3 text-xs" style={{ color: "#606070" }}>暂无统计数据（还没有真正打过 PanSou 上游）</div>
+                  ) : (
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr style={{ color: "#606070" }}>
+                          <th className="text-left py-1.5 px-3">来源</th>
+                          <th className="text-right py-1.5 px-3">命中数</th>
+                          <th className="text-right py-1.5 px-3">最近命中</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sourceStats.map((s) => (
+                          <tr key={s.source_key} style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+                            <td className="py-1.5 px-3 font-mono">{s.source_key}</td>
+                            <td className="py-1.5 px-3 text-right" style={{ color: s.hit_count === 0 ? "#f87171" : "#f0f0f5" }}>
+                              {s.hit_count}
+                            </td>
+                            <td className="py-1.5 px-3 text-right" style={{ color: "#606070" }}>
+                              {s.days_since_hit == null ? "从未" : `${s.days_since_hit}天前`}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}

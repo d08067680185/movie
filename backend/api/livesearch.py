@@ -6,6 +6,7 @@ import re
 import time
 import asyncio
 import logging
+from collections import Counter
 from typing import Optional
 
 import httpx
@@ -15,8 +16,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
-from database import get_db
-from models import SearchLog
+from database import get_db, AsyncSessionLocal
+from models import SearchLog, PansouSourceStat
 from utils import send_telegram
 from textnorm import normalize_keyword
 from dedup import clean_key
@@ -122,8 +123,25 @@ def _clean_url(raw: str) -> Optional[str]:
     return m.group(0).rstrip(").,;\"'>】」）#")
 
 
-def _normalize(data: dict) -> dict:
+def _relevance_tier(title: str, norm_keyword: str, tokens: list[str]) -> int:
+    """结果按与关键词的相关性分档，越小越相关。用在草筛300条硬截断*之前*的排序，
+    避免真正相关的结果因为在 PanSou 原始返回顺序里靠后而被截断挡在外面。
+    不引入分词/相似度库，只做子串包含判断——足够覆盖"标题里到底有没有关键词"
+    这个最基本的相关性信号，比完全不排序(纯用上游原始顺序)已经是明显改善。"""
+    t = normalize_keyword(title)
+    if t == norm_keyword:
+        return 0
+    if norm_keyword in t:
+        return 1
+    if tokens and all(tok in t for tok in tokens):
+        return 2
+    return 3
+
+
+def _normalize(data: dict, keyword: str) -> dict:
     merged = data.get("merged_by_type") or {}
+    norm_keyword = normalize_keyword(keyword)
+    tokens = [tok for tok in norm_keyword.split(" ") if tok]
     by_type: dict = {}
     total = 0
     for ctype in CLOUD_TYPES:
@@ -155,12 +173,43 @@ def _normalize(data: dict) -> dict:
                 "datetime": it.get("datetime"),
                 "source": it.get("source") or "",
             })
-            if len(items) >= _MAX_ITEMS_PER_TYPE:
-                break
+        # 先按相关性稳定排序（同档内保持 PanSou 原始相对顺序），再截断——
+        # 截断在排序之后，保留的300条才是"最相关的300条"而不是"最先返回的300条"
+        items.sort(key=lambda it: _relevance_tier(it["title"], norm_keyword, tokens))
+        items = items[:_MAX_ITEMS_PER_TYPE]
         if items:
             by_type[ctype] = items
             total += len(items)
     return {"total": total, "by_type": by_type}
+
+
+async def _record_source_stats(by_type: dict) -> None:
+    """PanSou 每条结果自带 source 字段(tg:<频道>/plugin:<插件>)，聚合计数写进
+    pansou_source_stats，用于识别长期零命中的死来源。只在真正打了上游时调用
+    (见 _fetch_pansou)，不在缓存命中路径重复计数，避免热门关键词把统计刷虚高。
+    用独立 session（不复用请求注入的 db）——本函数可能被并发合并(_fetch_coalesced)
+    的 leader 调用，此时原始请求的 db session 生命周期不可控。"""
+    counts = Counter()
+    for items in by_type.values():
+        for it in items:
+            src = it.get("source")
+            if src:
+                counts[src] += 1
+    if not counts:
+        return
+    try:
+        async with AsyncSessionLocal() as db:
+            for source_key, n in counts.items():
+                ins = sqlite_insert(PansouSourceStat).values(source_key=source_key, hit_count=n)
+                ins = ins.on_conflict_do_update(
+                    index_elements=["source_key"],
+                    set_={"hit_count": PansouSourceStat.hit_count + n, "last_hit_at": func.now()},
+                )
+                await db.execute(ins)
+            await db.commit()
+    except Exception as e:
+        # 统计失败不应该影响搜索结果返回，但静默会让"来源榜单为什么不更新"排查不出来
+        logger.warning("PanSou来源统计写入失败: %s", e)
 
 
 async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
@@ -174,7 +223,9 @@ async def _fetch_pansou(keyword: str, refresh: bool) -> dict:
             body = resp.json()
     if body.get("code") not in (0, None):
         raise HTTPException(status_code=502, detail=f"pansou error: {body.get('message')}")
-    return _normalize(body.get("data") or body)
+    payload = _normalize(body.get("data") or body, keyword)
+    asyncio.create_task(_record_source_stats(payload["by_type"]))
+    return payload
 
 
 def _circuit_is_open() -> bool:
