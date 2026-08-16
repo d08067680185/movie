@@ -171,14 +171,13 @@ export default function LiveSearchResults({
   const items = sortedItems.slice(0, visibleCount);
   const remaining = sortedItems.length - items.length;
 
-  // 当前可见的结果里，挑出还没检测过有效性的链接批量查一次（后端只认识夸克/百度，
-  // 其余类型请求了也会被忽略）；用 checkedLinks 记忆已查过的url，避免翻页/切筛选
-  // 时重复请求同一批链接
+  // 当前可见的结果里，挑出还没检测过有效性的链接批量查一次（后端代理PanSou，覆盖
+  // 9种网盘）；用 checkedLinks 记忆已查过的url，避免翻页/切筛选时重复请求同一批链接
   useEffect(() => {
-    const pending = items.map((it) => it.url).filter((u) => !(u in checkedLinks));
+    const pending = items.filter((it) => !(it.url in checkedLinks));
     if (pending.length === 0) return;
     let cancelled = false;
-    checkPanLinks(pending).then((res) => {
+    checkPanLinks(pending.map((it) => ({ url: it.url, cloudType: it._cloudType }))).then((res) => {
       if (cancelled) return;
       setCheckedLinks((prev) => ({ ...prev, ...res }));
     });

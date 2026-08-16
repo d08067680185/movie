@@ -105,9 +105,10 @@ def rate_limit_livesearch(request: Request):
     _livesearch_limiter.record(ip)
 
 
-# 链接有效性检测：夸克/百度各自的分享页在渲染文件信息前，会调用一个不需要登录的
-# 公开接口查询分享是否存在——跟"转存到自己网盘"用的鉴权接口是两回事，这里只读
-# 不写，不需要账号凭证。每次结果列表可见量级(<=30)，阈值比搜索本身宽松一些
+# 链接有效性检测：直接代理 PanSou 自带的 POST /api/check/links（对同一批已自托管的
+# PanSou 实例复用，服务端有分级缓存），覆盖 baidu/aliyun/quark/tianyi/uc/mobile/
+# 115/xunlei/123 共9种网盘——比这个项目之前手写的"只测夸克+百度"覆盖广得多，
+# 也不需要自己维护各家分享页私有接口的解析逻辑。每次结果列表可见量级(<=30)
 _check_links_limiter = SlidingWindowLimiter(
     max_attempts=90, window_seconds=60, message="链接检测请求过于频繁，请稍后再试"
 )
@@ -119,60 +120,38 @@ def rate_limit_check_links(request: Request):
     _check_links_limiter.record(ip)
 
 
-_QUARK_SHARE_RE = re.compile(r"quark\.cn/s/([a-zA-Z0-9]+)")
-_BAIDU_SHARE_RE = re.compile(r"baidu\.com/s/([a-zA-Z0-9_-]+)")
-
-
-async def _check_quark_link(client: httpx.AsyncClient, pwd_id: str) -> bool:
-    """夸克分享页用的公开接口，不需要登录。真实分享 code=0；不存在/已取消返回
-    非0(如41006"分享不存在")。探测本身失败(超时/网络错误)时返回True——不确定
-    不等于失效，避免网络抖动把正常链接错标。"""
-    try:
-        resp = await client.post(
-            "https://drive-h.quark.cn/1/clouddrive/share/sharepage/token?pr=ucpro&fr=pc",
-            json={"pwd_id": pwd_id, "passcode": ""},
-            timeout=6.0,
-        )
-        return resp.json().get("code") == 0
-    except Exception:
-        return True
-
-
-async def _check_baidu_link(client: httpx.AsyncClient, surl: str) -> bool:
-    """百度分享页同样有不需要登录的公开查询接口。errno=0(或不带errno)视为有效，
-    实测常见失效场景 errno=-21"该分享已被取消"、errno=140(格式错误)。"""
-    try:
-        resp = await client.get(
-            "https://pan.baidu.com/api/shorturlinfo",
-            params={"app_id": "250528", "shorturl": surl, "root": "1"},
-            timeout=6.0,
-        )
-        errno = resp.json().get("errno")
-        return errno in (None, 0)
-    except Exception:
-        return True
-
-
 @router.post("/livesearch/check-links")
 async def check_links(
-    urls: list[str] = Body(..., embed=True),
+    items: list[dict] = Body(..., embed=True, description='[{"url": str, "cloud_type": str}]'),
     _rl=Depends(rate_limit_check_links),
 ):
-    """网盘链接有效性检测，目前只覆盖夸克/百度(两家在全网搜结果里占比最大，
-    且都有不需要登录的公开查询接口)；其余网盘类型没找到等价的公开接口，
-    不在此列表里的url不会出现在返回结果中，前端据此判断"不支持检测"。"""
-    urls = urls[:30]
+    """代理 PanSou 的 /api/check/links。只保留 state 是 ok/bad 的结果映射成
+    True/False——locked(需要提取码)/uncertain(检测失败)/unsupported(该网盘类型
+    暂不支持检测) 都不在返回结果里出现，前端据此区分"确认有效/失效"和"不确定"。"""
+    items = items[:30]
+    payload_items = [
+        {"disk_type": it.get("cloud_type"), "url": it.get("url")}
+        for it in items
+        if it.get("url") and it.get("cloud_type")
+    ]
+    if not payload_items:
+        return {"results": {}}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{settings.PANSOU_URL}/api/check/links",
+                json={"items": payload_items},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.warning("链接检测代理PanSou失败: %s", e)
+        return {"results": {}}
     results: dict[str, bool] = {}
-    async with httpx.AsyncClient() as client:
-        async def _one(u: str):
-            m = _QUARK_SHARE_RE.search(u)
-            if m:
-                results[u] = await _check_quark_link(client, m.group(1))
-                return
-            m = _BAIDU_SHARE_RE.search(u)
-            if m:
-                results[u] = await _check_baidu_link(client, m.group(1))
-        await asyncio.gather(*[_one(u) for u in urls])
+    for r in data.get("results") or []:
+        state = r.get("state")
+        if state in ("ok", "bad"):
+            results[r.get("url")] = state == "ok"
     return {"results": results}
 
 

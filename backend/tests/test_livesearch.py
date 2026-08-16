@@ -343,84 +343,76 @@ async def test_livesearch_exclude_syntax_filters_results_without_polluting_upstr
 
 
 @pytest.mark.asyncio
-async def test_check_quark_link_reads_code_field():
+async def test_check_links_proxies_pansou_and_keeps_only_ok_bad_states(monkeypatch):
+    """代理 PanSou 原生 /api/check/links；只把 state=ok/bad 映射成 True/False，
+    locked/uncertain/unsupported 不出现在结果里（前端据此区分"确认"和"不确定"）。
+    直接调用端点函数而不经ASGI test client——monkeypatch httpx.AsyncClient会
+    同时影响test client自己发请求用的AsyncClient，两者会冲突。"""
+    captured = {}
+
     class FakeResp:
-        def __init__(self, data):
-            self._data = data
+        def raise_for_status(self):
+            pass
 
         def json(self):
-            return self._data
+            return {"results": [
+                {"url": "https://pan.quark.cn/s/valid", "state": "ok"},
+                {"url": "https://pan.quark.cn/s/dead", "state": "bad"},
+                {"url": "https://pan.baidu.com/s/locked", "state": "locked"},
+                {"url": "https://pan.115.com/s/unclear", "state": "uncertain"},
+            ]}
 
-    class FakeClient:
-        def __init__(self, response):
-            self._response = response
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
 
-        async def post(self, *args, **kwargs):
-            return self._response
+        async def __aenter__(self):
+            return self
 
-    assert await ls._check_quark_link(FakeClient(FakeResp({"code": 0})), "pwd") is True
-    assert await ls._check_quark_link(FakeClient(FakeResp({"code": 41006})), "pwd") is False
+        async def __aexit__(self, *args):
+            return False
+
+        async def post(self, url, json=None, **kwargs):
+            captured["url"] = url
+            captured["json"] = json
+            return FakeResp()
+
+    monkeypatch.setattr(ls.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = await ls.check_links(items=[
+        {"url": "https://pan.quark.cn/s/valid", "cloud_type": "quark"},
+        {"url": "https://pan.quark.cn/s/dead", "cloud_type": "quark"},
+        {"url": "https://pan.baidu.com/s/locked", "cloud_type": "baidu"},
+        {"url": "https://pan.115.com/s/unclear", "cloud_type": "115"},
+    ], _rl=None)
+
+    assert result["results"] == {
+        "https://pan.quark.cn/s/valid": True,
+        "https://pan.quark.cn/s/dead": False,
+    }
+    assert captured["url"].endswith("/api/check/links")
+    assert captured["json"]["items"][0] == {"disk_type": "quark", "url": "https://pan.quark.cn/s/valid"}
 
 
 @pytest.mark.asyncio
-async def test_check_quark_link_defaults_true_on_request_failure():
+async def test_check_links_returns_empty_on_upstream_failure(monkeypatch):
     class BoomClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
         async def post(self, *args, **kwargs):
             raise httpx.ConnectError("boom")
 
-    # 探测本身失败不应该被判定为失效——不确定不等于失效
-    assert await ls._check_quark_link(BoomClient(), "pwd") is True
+    monkeypatch.setattr(ls.httpx, "AsyncClient", BoomClient)
 
+    result = await ls.check_links(items=[
+        {"url": "https://pan.quark.cn/s/x", "cloud_type": "quark"},
+    ], _rl=None)
 
-@pytest.mark.asyncio
-async def test_check_baidu_link_reads_errno_field():
-    class FakeResp:
-        def __init__(self, data):
-            self._data = data
-
-        def json(self):
-            return self._data
-
-    class FakeClient:
-        def __init__(self, response):
-            self._response = response
-
-        async def get(self, *args, **kwargs):
-            return self._response
-
-    assert await ls._check_baidu_link(FakeClient(FakeResp({"errno": 0})), "surl") is True
-    assert await ls._check_baidu_link(FakeClient(FakeResp({})), "surl") is True  # 无errno字段视为正常
-    assert await ls._check_baidu_link(FakeClient(FakeResp({"errno": -21})), "surl") is False
-
-
-@pytest.mark.asyncio
-async def test_check_links_endpoint_dispatches_by_domain_and_skips_unsupported(monkeypatch, db_session):
-    from main import app
-    from httpx import ASGITransport
-
-    async def fake_quark(client, pwd_id):
-        return pwd_id == "valid"
-
-    async def fake_baidu(client, surl):
-        return surl == "valid"
-
-    monkeypatch.setattr(ls, "_check_quark_link", fake_quark)
-    monkeypatch.setattr(ls, "_check_baidu_link", fake_baidu)
-
-    transport = ASGITransport(app=app)
-    headers = {"CF-Connecting-IP": _unique_ip()}
-    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
-        r = await client.post("/api/livesearch/check-links", json={"urls": [
-            "https://pan.quark.cn/s/valid",
-            "https://pan.quark.cn/s/dead?pwd=1",
-            "https://pan.baidu.com/s/valid?pwd=8888",
-            "https://pan.aliyundrive.com/s/notsupported",
-        ]}, headers=headers)
-
-    assert r.status_code == 200
-    results = r.json()["results"]
-    assert results == {
-        "https://pan.quark.cn/s/valid": True,
-        "https://pan.quark.cn/s/dead?pwd=1": False,
-        "https://pan.baidu.com/s/valid?pwd=8888": True,
-    }  # 不支持的网盘类型直接不出现在结果里，不是False
+    assert result["results"] == {}  # 上游失败不确定不等于失效，返回空而不是误标False
