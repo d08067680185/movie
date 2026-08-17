@@ -108,6 +108,7 @@ async def search(
     bm25_rank_map: Optional[dict] = None
     if q.strip():
         keyword = q.strip()
+        id_filters = []
         if len(keyword) >= 3:
             # FTS5(trigram) 索引查询：显著快于全字段 ilike 全表扫描
             fts_query = build_fts_query(keyword)
@@ -124,7 +125,7 @@ async def search(
             # bm25 分数越低越相关；用 FTS 返回顺序的名次做排序键(名次越小越靠前)，
             # 而不是直接用分数——分数量纲跟别的排序列不好比较，名次更简单可控
             bm25_rank_map = {rid: i for i, rid in enumerate(matched_ids)}
-            stmt = stmt.where(Resource.id.in_(matched_ids))
+            id_filters.append(Resource.id.in_(matched_ids))
         else:
             # trigram 索引至少需要3个字符才能匹配，短关键词兜底改前缀匹配(标题
             # 开头是这几个字)，用 GLOB(不是ILIKE，见build_prefix_glob注释)配合
@@ -133,13 +134,19 @@ async def search(
             # 前缀匹配没有意义，留着子串匹配又会因为 OR 条件里有一支不可索引而
             # 拖累整个查询变回全表扫描，直接抵消加索引的收益
             glob_pattern = build_prefix_glob(keyword)
-            stmt = stmt.where(
-                or_(
-                    func.lower(Resource.title).op("GLOB")(glob_pattern),
-                    func.lower(Resource.title_en).op("GLOB")(glob_pattern),
-                    func.lower(Resource.original_title).op("GLOB")(glob_pattern),
-                )
-            )
+            id_filters.append(or_(
+                func.lower(Resource.title).op("GLOB")(glob_pattern),
+                func.lower(Resource.title_en).op("GLOB")(glob_pattern),
+                func.lower(Resource.original_title).op("GLOB")(glob_pattern),
+            ))
+        # 拼音检索：纯字母输入(如"douluodalu")额外命中 title_pinyin 子串匹配，
+        # 跟上面 FTS/前缀匹配是 OR 关系(补充而非替代)——title_pinyin 在入库时
+        # 就用 pypinyin 转换好存着(见 models.py 的 SQLAlchemy 事件监听器)，
+        # 汉字转拼音是确定性映射不存在拼音转汉字那种一对多歧义，可以放心做子串匹配。
+        # 命中的id如果不在bm25_rank_map里，排序时靠 case()的else_落到FTS结果之后
+        if re.fullmatch(r"[a-zA-Z]{2,}", keyword):
+            id_filters.append(Resource.title_pinyin.like(f"%{keyword.lower()}%"))
+        stmt = stmt.where(or_(*id_filters) if len(id_filters) > 1 else id_filters[0])
         ins = sqlite_insert(SearchLog).values(keyword=q.strip(), count=1)
         ins = ins.on_conflict_do_update(
             index_elements=["keyword"],
@@ -401,6 +408,26 @@ async def hot_searches(limit: int = 8, db: AsyncSession = Depends(get_db)):
     )
     logs = result.scalars().all()
     return [{"keyword": l.keyword, "count": l.count} for l in logs]
+
+
+@router.get("/search/suggest")
+async def suggest(
+    q: str = Query("", max_length=100),
+    limit: int = Query(8, ge=1, le=20),
+    db: AsyncSession = Depends(get_db),
+):
+    """搜索框边输入边给候选词——复用 SearchLog(本来就是给热词chips用的历史搜索
+    统计表)，按前缀匹配+搜索次数排序，不需要额外的数据源或新表。"""
+    keyword = q.strip()
+    if not keyword:
+        return []
+    result = await db.execute(
+        select(SearchLog.keyword, SearchLog.count)
+        .where(SearchLog.keyword.ilike(f"{keyword}%"))
+        .order_by(SearchLog.count.desc())
+        .limit(limit)
+    )
+    return [{"keyword": kw, "count": c} for kw, c in result.all()]
 
 
 @router.get("/related/{resource_id}")

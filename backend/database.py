@@ -65,6 +65,20 @@ async def init_db():
             await conn.execute(text("ALTER TABLE resources ADD COLUMN status VARCHAR(20) DEFAULT 'published'"))
             await conn.execute(text("UPDATE resources SET status = 'published' WHERE status IS NULL"))
 
+        # 旧库补字段：title_pinyin(拼音检索，见 models.py 的 SQLAlchemy 事件监听器
+        # 自动维护新增/编辑的行)——存量数据需要在这里一次性用Python算好回填，
+        # 拼音转换算不出SQL，没法像别的迁移那样纯SQL UPDATE
+        if "title_pinyin" not in res_col_names:
+            await conn.execute(text("ALTER TABLE resources ADD COLUMN title_pinyin VARCHAR(1000)"))
+            from pypinyin import lazy_pinyin
+            rows = (await conn.execute(text("SELECT id, title FROM resources"))).all()
+            for rid, title in rows:
+                pinyin = "".join(lazy_pinyin(title)).lower() if title else ""
+                await conn.execute(
+                    text("UPDATE resources SET title_pinyin = :p WHERE id = :id"),
+                    {"p": pinyin, "id": rid},
+                )
+
         # 板块种子数据：首次建表时插入5个板块 + 影视动画下沿用原有4个分类值
         section_seed = [
             ("video", "影视动画", "🎬", 0),
@@ -109,6 +123,7 @@ async def init_db():
             "CREATE INDEX IF NOT EXISTS idx_r_title_lower ON resources (LOWER(title))",
             "CREATE INDEX IF NOT EXISTS idx_r_title_en_lower ON resources (LOWER(title_en))",
             "CREATE INDEX IF NOT EXISTS idx_r_original_title_lower ON resources (LOWER(original_title))",
+            "CREATE INDEX IF NOT EXISTS idx_r_title_pinyin ON resources (title_pinyin)",
             "CREATE INDEX IF NOT EXISTS idx_r_section_id ON resources (section_id)",
             "CREATE INDEX IF NOT EXISTS idx_categories_section ON categories (section_id)",
             "CREATE INDEX IF NOT EXISTS idx_pa_netdisk_type ON pan_accounts (netdisk_type)",

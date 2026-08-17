@@ -218,6 +218,19 @@ export async function getHotSearches(): Promise<{ keyword: string; count: number
   }
 }
 
+// 搜索框边输入边推荐候选词，复用 SearchLog 热词统计，不缓存(输入内容变化快，
+// 缓存意义不大)
+export async function getSearchSuggestions(q: string): Promise<{ keyword: string; count: number }[]> {
+  if (!q.trim()) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/search/suggest?q=${encodeURIComponent(q.trim())}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function getRelated(id: number): Promise<ResourceCard[]> {
   try {
     return await fetchApi(`/api/related/${id}`);

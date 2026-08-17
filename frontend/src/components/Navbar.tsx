@@ -1,11 +1,11 @@
 "use client";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useEffect, useRef, FormEvent } from "react";
+import { useState, useEffect, useRef, FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Search, X, Sun, Moon, Menu, Heart } from "lucide-react";
 import { getFavoritesCount } from "@/lib/favorites";
 import { getPanFavoritesCount } from "@/lib/panFavorites";
-import { getSections } from "@/lib/api";
+import { getSections, getSearchSuggestions } from "@/lib/api";
 import { SECTIONS_FALLBACK } from "@/lib/utils";
 
 const totalFavCount = () => getFavoritesCount() + getPanFavoritesCount();
@@ -23,6 +23,9 @@ export default function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [favCount, setFavCount] = useState(0);
   const [sections, setSections] = useState(SECTIONS_FALLBACK);
+  const [suggestions, setSuggestions] = useState<{ keyword: string; count: number }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -37,6 +40,22 @@ export default function Navbar() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setQ(searchParams.get("q") || "");
   }, [searchParams]);
+
+  // 输入时防抖300ms拉一次候选词，避免每敲一个字都发请求
+  useEffect(() => {
+    if (!q.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getSearchSuggestions(q).then((res) => {
+        if (!cancelled) setSuggestions(res);
+      });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [q]);
 
   useEffect(() => {
     try {
@@ -81,12 +100,39 @@ export default function Navbar() {
     try { localStorage.setItem("movie-theme", next); } catch {}
   }
 
-  function handleSearch(e: FormEvent) {
-    e.preventDefault();
-    if (q.trim()) {
-      router.push(`/search?q=${encodeURIComponent(q.trim())}`);
+  function doSearch(keyword: string) {
+    setShowSuggestions(false);
+    setActiveSuggestion(-1);
+    if (keyword.trim()) {
+      router.push(`/search?q=${encodeURIComponent(keyword.trim())}`);
     } else {
       router.push("/search");
+    }
+  }
+
+  function handleSearch(e: FormEvent) {
+    e.preventDefault();
+    doSearch(q);
+  }
+
+  function pickSuggestion(keyword: string) {
+    setQ(keyword);
+    doSearch(keyword);
+  }
+
+  function handleInputKeyDown(e: ReactKeyboardEvent<HTMLInputElement>) {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveSuggestion((i) => (i + 1) % suggestions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveSuggestion((i) => (i <= 0 ? suggestions.length - 1 : i - 1));
+    } else if (e.key === "Enter" && activeSuggestion >= 0) {
+      e.preventDefault();
+      pickSuggestion(suggestions[activeSuggestion].keyword);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
     }
   }
 
@@ -125,7 +171,7 @@ export default function Navbar() {
           资源共享
         </Link>
 
-        <form onSubmit={handleSearch} className="flex-1 min-w-0 max-w-xl">
+        <form onSubmit={handleSearch} className="relative flex-1 min-w-0 max-w-xl">
           <div
             className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 rounded-lg search-glow"
             style={{
@@ -139,10 +185,14 @@ export default function Navbar() {
               ref={inputRef}
               type="text"
               value={q}
-              onChange={(e) => setQ(e.target.value)}
+              onChange={(e) => { setQ(e.target.value); setShowSuggestions(true); setActiveSuggestion(-1); }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setShowSuggestions(false)}
+              onKeyDown={handleInputKeyDown}
               placeholder="搜索影视、软件、电子书、音乐、游戏… (按 / 快速定位)"
               className="flex-1 bg-transparent outline-none text-sm"
               style={{ color: "var(--text-primary)" }}
+              autoComplete="off"
             />
             {q && (
               <button
@@ -156,6 +206,31 @@ export default function Navbar() {
               </button>
             )}
           </div>
+
+          {/* 搜索建议下拉：复用SearchLog热词统计，输入时防抖300ms拉取 */}
+          {showSuggestions && suggestions.length > 0 && (
+            <ul
+              className="absolute left-0 right-0 top-full mt-1.5 rounded-lg overflow-hidden z-50"
+              style={{ background: "var(--bg-card)", border: "1px solid var(--border)", boxShadow: "0 8px 24px rgba(0,0,0,0.25)" }}
+            >
+              {suggestions.map((s, i) => (
+                <li key={s.keyword}>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => pickSuggestion(s.keyword)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors"
+                    style={i === activeSuggestion
+                      ? { background: "rgba(229,9,20,0.1)", color: "#e50914" }
+                      : { color: "var(--text-secondary)" }}
+                  >
+                    <Search size={12} className="shrink-0 opacity-60" />
+                    <span className="flex-1 truncate">{s.keyword}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </form>
 
         <div className="flex items-center gap-2.5 sm:gap-4 text-sm shrink-0">

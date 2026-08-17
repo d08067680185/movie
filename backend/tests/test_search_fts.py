@@ -114,6 +114,93 @@ async def test_short_keyword_matches_title_en_and_original_title_prefix(db_sessi
     assert data["total"] == 1
 
 
+def test_compute_title_pinyin():
+    from models import _compute_title_pinyin
+
+    assert _compute_title_pinyin("斗罗大陆") == "douluodalu"
+    assert _compute_title_pinyin("") == ""
+    assert _compute_title_pinyin(None) == ""
+
+
+@pytest.mark.asyncio
+async def test_title_pinyin_synced_via_event_listener_on_insert_and_update(db_session):
+    r = Resource(title="斗罗大陆", category="电视剧", year=2018)
+    db_session.add(r)
+    await db_session.commit()
+    await db_session.refresh(r)
+    assert r.title_pinyin == "douluodalu"
+
+    r.title = "复仇者联盟"
+    await db_session.commit()
+    await db_session.refresh(r)
+    assert r.title_pinyin == "fuchouzhelianmeng"
+
+
+@pytest.mark.asyncio
+async def test_pinyin_search_matches_chinese_title(db_session):
+    """纯字母输入(拼音)应该能搜到对应中文标题的资源——汉字转拼音是确定性映射，
+    跟"拼音转汉字"的一对多歧义完全是两回事(参考project memory里放弃拼音输入
+    的讨论，那次是全网搜场景下"拼音转汉字"，这里是反方向)。"""
+    from main import app
+
+    db_session.add(Resource(title="斗罗大陆", category="电视剧", year=2018))
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/search", params={"q": "douluodalu"})
+    assert resp.status_code == 200
+    data = resp.json()
+    titles = [item["title"] for item in data["items"]]
+    assert "斗罗大陆" in titles
+
+
+@pytest.mark.asyncio
+async def test_pinyin_search_matches_midstring_substring(db_session):
+    """拼音走子串匹配（不只是前缀），"luodalu"也能命中"斗罗大陆"(douluodalu)。"""
+    from main import app
+
+    db_session.add(Resource(title="斗罗大陆", category="电视剧", year=2018))
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/search", params={"q": "luodalu"})
+    assert resp.status_code == 200
+    assert resp.json()["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_suggest_endpoint_returns_prefix_matches_sorted_by_count(db_session):
+    from main import app
+    from models import SearchLog
+
+    db_session.add_all([
+        SearchLog(keyword="斗罗大陆", count=5),
+        SearchLog(keyword="斗破苍穹", count=10),
+        SearchLog(keyword="完全不相关", count=100),
+    ])
+    await db_session.commit()
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/search/suggest", params={"q": "斗"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [d["keyword"] for d in data] == ["斗破苍穹", "斗罗大陆"]  # 按count降序
+
+
+@pytest.mark.asyncio
+async def test_suggest_endpoint_empty_query_returns_empty_list(db_session):
+    from main import app
+
+    transport = ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/api/search/suggest", params={"q": ""})
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
 @pytest.mark.asyncio
 async def test_fts_search_ranks_title_match_above_popular_synopsis_only_match(db_session):
     """bm25 相关度验证：关键词出现在标题(短字段)里的资源，即使热度低，

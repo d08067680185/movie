@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Text, Float, Boolean,
-    DateTime, ForeignKey, Table, JSON
+    DateTime, ForeignKey, Table, JSON, event
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -45,6 +45,7 @@ class Resource(Base):
     title = Column(String(500), nullable=False, index=True)
     title_en = Column(String(500))
     original_title = Column(String(500))
+    title_pinyin = Column(String(1000), index=True)  # title的全拼小写拼接，自动维护见文件末尾事件监听器
     year = Column(Integer, index=True)
     category = Column(String(50), index=True)  # movie, tv, anime, variety
     section_id = Column(Integer, ForeignKey("sections.id"), index=True)
@@ -73,6 +74,21 @@ class Resource(Base):
     links = relationship("ResourceLink", back_populates="resource", cascade="all, delete-orphan")
     tags = relationship("Tag", secondary=ResourceTag, back_populates="resources")
     section = relationship("Section")
+
+
+def _compute_title_pinyin(title: str) -> str:
+    from pypinyin import lazy_pinyin
+    return "".join(lazy_pinyin(title)).lower() if title else ""
+
+
+@event.listens_for(Resource, "before_insert")
+@event.listens_for(Resource, "before_update")
+def _sync_title_pinyin(mapper, connection, target):
+    """title_pinyin 单一维护点——所有创建/更新 Resource 的路径(admin手动建/编辑、
+    批量导入、爬虫upsert)都会自动触发，不需要在每个写入点手动调用，也不怕以后
+    新增写入点忘记同步。汉字转拼音是确定性映射(不像拼音转汉字那样一对多歧义)，
+    可以放心用来做搜索时的子串匹配，见 api/search.py。"""
+    target.title_pinyin = _compute_title_pinyin(target.title)
 
 
 class ResourceLink(Base):
