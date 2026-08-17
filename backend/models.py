@@ -223,6 +223,18 @@ class PansouSourceStat(Base):
     last_hit_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class LiveLinkReport(Base):
+    """全网搜(PanSou)结果的用户众包失效举报——覆盖面比PansouCheck那套API检测广
+    (连magnet都能标，check接口只认9种网盘)。url_hash 用 sha256(url) 而不是原始
+    url 做主键，因为部分url(尤其magnet的dn=参数)可能很长，不适合直接做索引键。"""
+    __tablename__ = "live_link_reports"
+
+    url_hash = Column(String(64), primary_key=True)
+    url = Column(Text, nullable=False)
+    report_count = Column(Integer, nullable=False, default=0)
+    last_reported_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class DiskUsageSnapshot(Base):
     """每日一次的磁盘占用快照，供管理后台画简单的历史趋势图(容量规划用)。"""
     __tablename__ = "disk_usage_snapshots"

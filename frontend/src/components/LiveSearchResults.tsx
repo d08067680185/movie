@@ -1,10 +1,52 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Search, Globe, RefreshCw, Copy, Check, AlertTriangle } from "lucide-react";
-import { liveSearch, checkPanLinks, getHotResources, LiveSearchResult, LiveSearchItem, ResourceCard } from "@/lib/api";
+import { Search, Globe, RefreshCw, Copy, Check, AlertTriangle, Flag, EyeOff } from "lucide-react";
+import { liveSearch, checkPanLinks, reportInvalidLink, getHotResources, LiveSearchResult, LiveSearchItem, ResourceCard } from "@/lib/api";
 import { CLOUD_TYPE_LABELS } from "@/lib/utils";
+import { getBlockedSourceKeys, blockSource } from "@/lib/blockedSources";
 import PanLinkModal from "./PanLinkModal";
+
+// 众包失效举报：记住"我举报过哪些url"，防止同一浏览器对同一条结果反复点击。
+// 跟后端 report_count 阈值(2)是两回事——这个只管本地按钮状态，不代表已经生效。
+const REPORTED_KEY = "movie-reported-invalid-links";
+
+function readReportedLinks(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(REPORTED_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function markReported(url: string) {
+  try {
+    const set = readReportedLinks();
+    set.add(url);
+    localStorage.setItem(REPORTED_KEY, JSON.stringify([...set].slice(-500)));
+  } catch {
+    // 静默失败
+  }
+}
+
+// 关键词高亮：跳过 `-排除词` token(跟后端 _parse_query 同样的规则)，只高亮
+// 正向词。用捕获组split，奇数下标天然是匹配片段，不需要额外调用.test()判断
+// (避免全局正则的lastIndex状态在循环里被污染导致交替判断错误)
+function highlightTitle(title: string, query: string) {
+  const terms = query
+    .split(/\s+/)
+    .filter((t) => t && !t.startsWith("-"))
+    .map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (terms.length === 0) return title;
+  const re = new RegExp(`(${terms.join("|")})`, "gi");
+  const parts = title.split(re);
+  if (parts.length === 1) return title;
+  return parts.map((part, i) =>
+    i % 2 === 1
+      ? <mark key={i} style={{ background: "rgba(229,9,20,0.22)", color: "inherit", borderRadius: 2, padding: "0 1px" }}>{part}</mark>
+      : part
+  );
+}
 
 // 聚合视图的伪类型值：合并所有网盘类型按时间/默认顺序展示，而不是必须先选一个类型
 const ALL_TYPE = "__all__";
@@ -125,6 +167,20 @@ export default function LiveSearchResults({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeQuality, setActiveQuality] = useState<string>(ALL_QUALITY);
   const [checkedLinks, setCheckedLinks] = useState<Record<string, boolean>>({});
+  const [blockedSources, setBlockedSources] = useState<Set<string>>(() => getBlockedSourceKeys());
+  const [reportedLinks, setReportedLinks] = useState<Set<string>>(() => readReportedLinks());
+
+  function handleBlockSource(source: string) {
+    blockSource(source);
+    setBlockedSources(getBlockedSourceKeys());
+  }
+
+  function handleReport(url: string) {
+    if (reportedLinks.has(url)) return;
+    markReported(url);
+    setReportedLinks(readReportedLinks());
+    reportInvalidLink(url);
+  }
 
   function handleCopy(item: LiveSearchItem, key: string) {
     const text = item.password ? `${item.url} 提取码: ${item.password}` : item.url;
@@ -159,9 +215,10 @@ export default function LiveSearchResults({
 
   const types = result?.types || [];
   const isAll = activeType === ALL_TYPE;
-  const rawItems: TaggedItem[] = isAll
+  const rawItems: TaggedItem[] = (isAll
     ? types.flatMap((t) => (result?.by_type[t.type] || []).map((it) => ({ ...it, _cloudType: t.type })))
-    : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }));
+    : (result?.by_type[activeType] || []).map((it) => ({ ...it, _cloudType: activeType }))
+  ).filter((it) => !blockedSources.has(it.source));
   const allItems = activeQuality === ALL_QUALITY
     ? rawItems
     : rawItems.filter((it) => it.title.toUpperCase().includes(activeQuality));
@@ -365,7 +422,7 @@ export default function LiveSearchResults({
                   >
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium leading-relaxed break-all" style={{ color: "var(--text-primary)" }}>
-                        {item.title}
+                        {highlightTitle(item.title, q)}
                       </p>
                       <p className="text-xs mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-0.5" style={{ color: "var(--text-muted)" }}>
                         <span className="flex items-center gap-1">
@@ -379,6 +436,13 @@ export default function LiveSearchResults({
                               · 历史命中{item.source_hits}次
                             </span>
                           )}
+                          <button
+                            onClick={() => handleBlockSource(item.source)}
+                            title="屏蔽这个来源，以后搜索结果不再显示"
+                            className="opacity-50 hover:opacity-100 transition-opacity"
+                          >
+                            <EyeOff size={11} />
+                          </button>
                         </span>
                         {item.password && <span>提取码: {item.password}</span>}
                         {formatDate(item.datetime) && <span>分享于 {formatDate(item.datetime)}</span>}
@@ -392,9 +456,30 @@ export default function LiveSearchResults({
                             链接可能已失效
                           </span>
                         )}
+                        {item.reported_invalid && (
+                          <span
+                            className="flex items-center gap-1"
+                            style={{ color: "#fbbf24" }}
+                            title="多名用户举报此链接已失效（众包标记，非官方接口检测）"
+                          >
+                            <AlertTriangle size={11} />
+                            用户举报已失效
+                          </span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                      <button
+                        onClick={() => handleReport(item.url)}
+                        disabled={reportedLinks.has(item.url)}
+                        title={reportedLinks.has(item.url) ? "已举报，感谢反馈" : "举报此链接已失效"}
+                        className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-sm transition-all"
+                        style={reportedLinks.has(item.url)
+                          ? { background: "rgba(251,191,36,0.12)", color: "#fbbf24", border: "1px solid rgba(251,191,36,0.3)" }
+                          : { background: "var(--bg-input)", border: "1px solid var(--border-input)", color: "var(--text-secondary)" }}
+                      >
+                        <Flag size={13} />
+                      </button>
                       <button
                         onClick={() => handleCopy(item, key)}
                         title="复制链接和提取码"

@@ -418,6 +418,69 @@ async def test_livesearch_attaches_source_hits_without_mutating_cached_payload(m
 
 
 @pytest.mark.asyncio
+async def test_report_invalid_link_upserts_and_accumulates(db_session):
+    from main import app
+    from httpx import ASGITransport
+
+    url = "https://pan.quark.cn/s/report-test-1"
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        r1 = await client.post("/api/livesearch/report-invalid", json={"url": url}, headers=headers)
+        r2 = await client.post("/api/livesearch/report-invalid", json={"url": url}, headers=headers)
+
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    from sqlalchemy import select
+    from models import LiveLinkReport
+
+    row = (await db_session.execute(
+        select(LiveLinkReport).where(LiveLinkReport.url_hash == ls._url_hash(url))
+    )).scalar_one()
+    assert row.report_count == 2
+    assert row.url == url
+
+
+@pytest.mark.asyncio
+async def test_livesearch_marks_reported_invalid_only_at_threshold(monkeypatch, db_session):
+    """举报次数达到阈值前不应该展示 reported_invalid，达到后才展示。"""
+    from main import app
+    from httpx import ASGITransport
+
+    ls._cache.clear()
+    ls._invalid_reports_cache.clear()
+    ls._invalid_reports_cache_ts = 0.0
+    url = "https://pan.quark.cn/s/report-threshold-test"
+
+    async def fake_fetch(keyword, refresh):
+        return {"total": 1, "by_type": {"quark": [
+            {"title": "举报阈值测试", "url": url, "password": "", "datetime": None, "source": "tg:x"},
+        ]}}
+
+    monkeypatch.setattr(ls, "_fetch_pansou", fake_fetch)
+
+    transport = ASGITransport(app=app)
+    headers = {"CF-Connecting-IP": _unique_ip()}
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        # 举报1次：未达阈值(2)，不应标记
+        await client.post("/api/livesearch/report-invalid", json={"url": url}, headers=headers)
+        ls._invalid_reports_cache.clear()
+        ls._invalid_reports_cache_ts = 0.0
+        r1 = await client.get("/api/livesearch", params={"q": "举报阈值测试"}, headers=headers)
+        assert r1.json()["by_type"]["quark"][0]["reported_invalid"] is False
+
+        # 再举报1次：达到阈值(2)，应该标记
+        await client.post("/api/livesearch/report-invalid", json={"url": url}, headers=headers)
+        ls._invalid_reports_cache.clear()
+        ls._invalid_reports_cache_ts = 0.0
+        ls._cache.clear()
+        r2 = await client.get("/api/livesearch", params={"q": "举报阈值测试"}, headers=headers)
+        assert r2.json()["by_type"]["quark"][0]["reported_invalid"] is True
+
+    ls._cache.clear()
+
+
+@pytest.mark.asyncio
 async def test_check_links_proxies_pansou_and_keeps_only_ok_bad_states(monkeypatch):
     """代理 PanSou 原生 /api/check/links；只把 state=ok/bad 映射成 True/False，
     locked/uncertain/unsupported 不出现在结果里（前端据此区分"确认"和"不确定"）。

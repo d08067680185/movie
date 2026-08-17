@@ -5,6 +5,7 @@ PanSou 部署为 docker-compose 中的 pansou 服务（ghcr.io/fish2018/pansou�
 import re
 import time
 import asyncio
+import hashlib
 import logging
 from collections import Counter
 from typing import Optional
@@ -19,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import settings
 from database import get_db, AsyncSessionLocal
-from models import SearchLog, PansouSourceStat
+from models import SearchLog, PansouSourceStat, LiveLinkReport
 from utils import send_telegram
 from textnorm import normalize_keyword
 from dedup import clean_key
@@ -115,6 +116,76 @@ async def _get_source_hit_map() -> dict[str, int]:
         except Exception as e:
             logger.warning("加载来源命中率缓存失败: %s", e)
     return _source_hits_cache
+
+
+def _url_hash(url: str) -> str:
+    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+# 用户众包失效举报——同一套TTL缓存模式，key是url_hash。阈值(见_INVALID_REPORT_
+# THRESHOLD)在livesearch()端点里用，不在这里判断，缓存只管原始report_count
+_invalid_reports_cache: dict[str, int] = {}
+_invalid_reports_cache_ts = 0.0
+_INVALID_REPORTS_TTL = 300.0
+_INVALID_REPORT_THRESHOLD = 2  # 单次误点/恶意点击不足以定性失效，达到2次才展示警示
+_invalid_reports_lock = asyncio.Lock()
+
+
+async def _get_invalid_report_map() -> dict[str, int]:
+    global _invalid_reports_cache_ts
+    now = time.time()
+    if _invalid_reports_cache and (now - _invalid_reports_cache_ts) < _INVALID_REPORTS_TTL:
+        return _invalid_reports_cache
+    async with _invalid_reports_lock:
+        if _invalid_reports_cache and (time.time() - _invalid_reports_cache_ts) < _INVALID_REPORTS_TTL:
+            return _invalid_reports_cache
+        try:
+            async with AsyncSessionLocal() as db:
+                rows = (await db.execute(
+                    select(LiveLinkReport.url_hash, LiveLinkReport.report_count)
+                )).all()
+            _invalid_reports_cache.clear()
+            _invalid_reports_cache.update({key: count for key, count in rows})
+            _invalid_reports_cache_ts = time.time()
+        except Exception as e:
+            logger.warning("加载失效举报缓存失败: %s", e)
+    return _invalid_reports_cache
+
+
+_report_invalid_limiter = SlidingWindowLimiter(
+    max_attempts=30, window_seconds=60, message="举报过于频繁，请稍后再试"
+)
+
+
+def rate_limit_report_invalid(request: Request):
+    ip = get_client_ip(request)
+    _report_invalid_limiter.check(ip)
+    _report_invalid_limiter.record(ip)
+
+
+@router.post("/livesearch/report-invalid")
+async def report_invalid_link(
+    url: str = Body(..., embed=True, max_length=2000),
+    db: AsyncSession = Depends(get_db),
+    _rl=Depends(rate_limit_report_invalid),
+):
+    """用户举报某条全网搜结果链接已失效——覆盖面比 /api/livesearch/check-links
+    (只认PanSou支持的9种网盘)广，magnet等类型也能标。同一个url被多个用户/多次
+    举报会累加，展示层在达到 _INVALID_REPORT_THRESHOLD 前不会给用户看警示。"""
+    if not url.strip():
+        raise HTTPException(status_code=400, detail="url不能为空")
+    url_hash = _url_hash(url)
+    ins = sqlite_insert(LiveLinkReport).values(url_hash=url_hash, url=url, report_count=1)
+    ins = ins.on_conflict_do_update(
+        index_elements=["url_hash"],
+        set_={"report_count": LiveLinkReport.report_count + 1, "last_reported_at": func.now()},
+    )
+    await db.execute(ins)
+    await db.commit()
+    # 缓存里没有这条最新数据不影响主流程正确性(下次搜索该链接的response字段
+    # 顶多晚5分钟才反映最新举报数)，不用在这里强制刷新缓存
+    return {"ok": True}
+
 
 # 进程内调用统计（单worker部署；多worker需换Redis，缓存同理）
 _stats = {"requests": 0, "cache_hits": 0, "upstream_errors": 0, "coalesced": 0}
@@ -509,11 +580,19 @@ async def livesearch(
         by_type = {cloud_type: by_type.get(cloud_type, [])}
     total = sum(len(v) for v in by_type.values())
 
-    # 来源命中率：新建 item 字典而不是原地改，因为 by_type 在没有排除词时跟
-    # _cache 里存的是同一个对象引用，原地 mutate 会污染后续请求复用的缓存数据
+    # 来源命中率 + 失效举报：新建 item 字典而不是原地改，因为 by_type 在没有排除词
+    # 时跟 _cache 里存的是同一个对象引用，原地 mutate 会污染后续请求复用的缓存数据
     hit_map = await _get_source_hit_map()
+    report_map = await _get_invalid_report_map()
     by_type = {
-        ctype: [{**it, "source_hits": hit_map.get(it["source"], 0)} for it in items]
+        ctype: [
+            {
+                **it,
+                "source_hits": hit_map.get(it["source"], 0),
+                "reported_invalid": report_map.get(_url_hash(it["url"]), 0) >= _INVALID_REPORT_THRESHOLD,
+            }
+            for it in items
+        ]
         for ctype, items in by_type.items()
     }
     return {"total": total, "types": types, "by_type": by_type}

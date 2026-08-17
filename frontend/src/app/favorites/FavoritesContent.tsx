@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Heart, Trash2, Globe } from "lucide-react";
+import { Heart, Trash2, Globe, EyeOff } from "lucide-react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import ResourceCardComponent from "@/components/ResourceCard";
@@ -8,12 +8,14 @@ import Footer from "@/components/Footer";
 import PanLinkModal from "@/components/PanLinkModal";
 import { getFavorites, removeFavorite, FavoriteItem } from "@/lib/favorites";
 import { getPanFavorites, removePanFavorite, PanFavoriteItem } from "@/lib/panFavorites";
+import { getBlockedSources, unblockSource, BlockedSource } from "@/lib/blockedSources";
 import { CLOUD_TYPE_LABELS } from "@/lib/utils";
 
 export default function FavoritesContent() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [panFavorites, setPanFavorites] = useState<PanFavoriteItem[]>([]);
-  const [tab, setTab] = useState<"resource" | "pan">("resource");
+  const [blockedSources, setBlockedSources] = useState<BlockedSource[]>([]);
+  const [tab, setTab] = useState<"resource" | "pan" | "blocked">("resource");
   const [modalItem, setModalItem] = useState<PanFavoriteItem | null>(null);
   const [mounted, setMounted] = useState(false);
 
@@ -22,7 +24,13 @@ export default function FavoritesContent() {
     setMounted(true);
     setFavorites(getFavorites());
     setPanFavorites(getPanFavorites());
+    setBlockedSources(getBlockedSources());
   }, []);
+
+  function removeOneBlocked(source: string) {
+    unblockSource(source);
+    setBlockedSources((prev) => prev.filter((b) => b.source !== source));
+  }
 
   // 弹窗内取消收藏后同步列表
   useEffect(() => {
@@ -39,10 +47,15 @@ export default function FavoritesContent() {
       if (!confirm("确认清空所有影视收藏？")) return;
       for (const f of favorites) removeFavorite(f.id);
       setFavorites([]);
-    } else {
+    } else if (tab === "pan") {
       if (!confirm("确认清空所有网盘链接收藏？")) return;
       for (const f of panFavorites) removePanFavorite(f.url);
       setPanFavorites([]);
+    } else {
+      if (!confirm("确认清空所有屏蔽来源？")) return;
+      for (const b of blockedSources) unblockSource(b.source);
+      setBlockedSources([]);
+      return;
     }
     window.dispatchEvent(new Event("favoritesChanged"));
   }
@@ -67,7 +80,7 @@ export default function FavoritesContent() {
     );
   }
 
-  const activeCount = tab === "resource" ? favorites.length : panFavorites.length;
+  const activeCount = tab === "resource" ? favorites.length : tab === "pan" ? panFavorites.length : blockedSources.length;
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>
@@ -89,7 +102,7 @@ export default function FavoritesContent() {
               }}
             >
               <Trash2 size={12} />
-              清空{tab === "resource" ? "影视收藏" : "链接收藏"}
+              清空{tab === "resource" ? "影视收藏" : tab === "pan" ? "链接收藏" : "屏蔽来源"}
             </button>
           )}
         </div>
@@ -99,6 +112,7 @@ export default function FavoritesContent() {
           {([
             ["resource", `影视资源 (${favorites.length})`],
             ["pan", `网盘链接 (${panFavorites.length})`],
+            ["blocked", `已屏蔽来源 (${blockedSources.length})`],
           ] as const).map(([v, label]) => (
             <button
               key={v}
@@ -155,7 +169,8 @@ export default function FavoritesContent() {
               </p>
             </>
           )
-        ) : panFavorites.length === 0 ? (
+        ) : tab === "pan" ? (
+          panFavorites.length === 0 ? (
           <div
             className="flex flex-col items-center justify-center py-32 text-center"
             style={{ color: "var(--text-muted)" }}
@@ -224,6 +239,48 @@ export default function FavoritesContent() {
               网盘分享链接可能失效，建议及时转存到自己的网盘
             </p>
           </>
+          )
+        ) : blockedSources.length === 0 ? (
+          <div
+            className="flex flex-col items-center justify-center py-32 text-center"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <EyeOff size={48} className="mb-4 opacity-20" />
+            <p className="text-lg mb-2">还没有屏蔽任何来源</p>
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              在全网搜结果里点击「来源」旁的屏蔽图标即可
+            </p>
+          </div>
+        ) : (
+          <div
+            className="rounded-xl px-4 sm:px-6 py-2"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+          >
+            <ul>
+              {blockedSources.map((b) => (
+                <li
+                  key={b.source}
+                  className="py-3 flex items-center justify-between gap-3"
+                  style={{ borderBottom: "1px dashed var(--border)" }}
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-mono" style={{ color: "var(--text-primary)" }}>{b.source}</p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                      屏蔽于 {new Date(b.blocked_at).toLocaleDateString("zh-CN")}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => removeOneBlocked(b.source)}
+                    className="p-2 rounded-lg transition-all shrink-0"
+                    style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.25)", color: "#f87171" }}
+                    title="解除屏蔽"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </main>
 

@@ -145,6 +145,7 @@ export interface LiveSearchItem {
   datetime?: string;
   source: string;
   source_hits?: number;
+  reported_invalid?: boolean;
 }
 
 export interface LiveSearchResult {
@@ -188,6 +189,20 @@ export async function checkPanLinks(items: { url: string; cloudType: string }[])
     return data.results ?? {};
   } catch {
     return {};
+  }
+}
+
+// 众包失效举报：同一url多次举报累加，后端达到阈值(2)才会在后续搜索结果里
+// 标记 reported_invalid。失败静默(不影响用户操作体感)，调用方不需要处理异常。
+export async function reportInvalidLink(url: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/livesearch/report-invalid`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+  } catch {
+    // 静默失败
   }
 }
 
