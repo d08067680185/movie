@@ -5,7 +5,7 @@ import { Search, X } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import LiveSearchResults from "@/components/LiveSearchResults";
-import { getHotSearches } from "@/lib/api";
+import { getHotSearches, getSearchSuggestions } from "@/lib/api";
 
 const INACTIVE_BTN = {
   background: "var(--bg-input)",
@@ -20,6 +20,7 @@ export default function PanContent() {
 
   const [input, setInput] = useState(q);
   const [hotWords, setHotWords] = useState<{ keyword: string; count: number }[]>([]);
+  const [liveSuggestions, setLiveSuggestions] = useState<{ keyword: string; count: number }[]>([]);
   const [showSuggest, setShowSuggest] = useState(false);
 
   useEffect(() => {
@@ -30,6 +31,23 @@ export default function PanContent() {
   useEffect(() => {
     getHotSearches().then((w) => setHotWords(w.slice(0, 10)));
   }, []);
+
+  // 输入时防抖300ms拉真实候选词——SearchLog是本地搜索和全网搜共用的同一张表，
+  // 这里跟Navbar搜索框调的是同一个接口，不是本地热词chip的裁剪版
+  useEffect(() => {
+    if (!input.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLiveSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      getSearchSuggestions(input).then((res) => {
+        if (!cancelled) setLiveSuggestions(res);
+      });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [input]);
 
   function goSearch(keyword: string) {
     const kw = keyword.trim();
@@ -42,9 +60,7 @@ export default function PanContent() {
     goSearch(input);
   }
 
-  const suggestions = input.trim()
-    ? hotWords.filter((w) => w.keyword.includes(input.trim()) && w.keyword !== input.trim())
-    : hotWords;
+  const suggestions = input.trim() ? liveSuggestions : hotWords;
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg-primary)" }}>

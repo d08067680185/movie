@@ -276,6 +276,32 @@ async def get_pansou_source_stats(
     ]
 
 
+@router.get("/live-link-reports")
+async def get_live_link_reports(
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(verify_admin),
+):
+    """全网搜(PanSou/bitsearch)结果的用户众包失效举报榜单——按举报次数降序，
+    方便人工核实举报量高的链接是不是真的失效了。写入侧见
+    api/livesearch.py:report_invalid_link，前端展示阈值(2次)在livesearch()
+    端点里判断，这里不做阈值过滤，管理员看的是全量原始数据。"""
+    from models import LiveLinkReport
+
+    result = await db.execute(
+        select(LiveLinkReport).order_by(LiveLinkReport.report_count.desc()).limit(limit)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "url": r.url,
+            "report_count": r.report_count,
+            "last_reported_at": r.last_reported_at.isoformat() if r.last_reported_at else None,
+        }
+        for r in rows
+    ]
+
+
 @router.patch("/links/{link_id}")
 async def update_link(
     link_id: int,

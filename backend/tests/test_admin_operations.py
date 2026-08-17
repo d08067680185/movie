@@ -182,3 +182,28 @@ async def test_merge_duplicate_group_skips_keep_id_in_dup_list(db_session, monke
         )
     assert resp.status_code == 200
     assert "0 条" in resp.json()["message"] or "移动 0 条" in resp.json()["message"]
+
+
+@pytest.mark.asyncio
+async def test_live_link_reports_sorted_by_count_desc(db_session, monkeypatch):
+    from models import LiveLinkReport
+
+    db_session.add_all([
+        LiveLinkReport(url_hash="h1", url="https://pan.quark.cn/s/low", report_count=1),
+        LiveLinkReport(url_hash="h2", url="https://pan.quark.cn/s/high", report_count=5),
+    ])
+    await db_session.commit()
+
+    async with _client() as client:
+        resp = await client.get("/api/admin/live-link-reports", headers=_admin_headers(monkeypatch))
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [d["url"] for d in data] == ["https://pan.quark.cn/s/high", "https://pan.quark.cn/s/low"]
+    assert data[0]["report_count"] == 5
+
+
+@pytest.mark.asyncio
+async def test_live_link_reports_requires_admin_token():
+    async with _client() as client:
+        resp = await client.get("/api/admin/live-link-reports")
+    assert resp.status_code in (401, 403)
